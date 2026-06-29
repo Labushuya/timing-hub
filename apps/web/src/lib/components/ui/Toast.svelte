@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { toastStore } from '$lib/stores/toast.js';
-  import type { Toast } from '$lib/stores/toast.js';
+  import { toastStore } from '$lib/stores/toast.svelte.js';
+  import type { Toast } from '$lib/stores/toast.svelte.js';
 
   interface ToastProps {
     toast: Toast;

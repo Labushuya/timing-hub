@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { authStore } from '$lib/stores/auth.js';
+  import { authStore } from '$lib/stores/auth.svelte.js';
   import { api } from '$lib/api/client.js';
   import Button from '$lib/components/ui/Button.svelte';
 

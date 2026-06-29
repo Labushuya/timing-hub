@@ -6,7 +6,7 @@
  */
 
 import { get as idbGet, set as idbSet, del as idbDel, keys as idbKeys } from 'idb-keyval';
-import { authStore } from './auth.js';
+import { authStore } from './auth.svelte.js';
 
 // ---- Types ------------------------------------------------------------------
 
@@ -69,10 +69,11 @@ function createOfflineStore() {
     return seq;
   }
 
-  async function sync(): Promise<void> {
+  async function sync(sessionToken?: string): Promise<void> {
     if (syncing || pending === 0) return;
 
-    const token = authStore.accessToken;
+    // Use the provided sessionToken (zeitnehmer mode) or fall back to JWT
+    const token = sessionToken ?? authStore.accessToken;
     if (!token) return;
 
     syncing = true;

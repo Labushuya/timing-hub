@@ -23,8 +23,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       // participantRoutes, postenRoutes register full paths under /events/:slug/...
       await api.register(participantRoutes);
       await api.register(postenRoutes);
-      await api.register(timesRoutes,       { prefix: '/times' });
-      await api.register(resultsRoutes,     { prefix: '/results' });
+      await api.register(timesRoutes);
+      await api.register(resultsRoutes);
     },
     { prefix: API_PREFIX },
   );

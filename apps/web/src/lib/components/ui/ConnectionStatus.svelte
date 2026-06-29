@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { WsStatus } from '$lib/stores/ws.js';
+  import type { WsStatus } from '$lib/stores/ws.svelte.js';
 
   interface Props {
     status: WsStatus;

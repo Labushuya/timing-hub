@@ -1,9 +1,9 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
-  import { authStore } from '$lib/stores/auth.js';
-  import { wsStore } from '$lib/stores/ws.js';
-  import { offlineStore } from '$lib/stores/offline.js';
+  import { authStore } from '$lib/stores/auth.svelte.js';
+  import { wsStore } from '$lib/stores/ws.svelte.js';
+  import { offlineStore } from '$lib/stores/offline.svelte.js';
   import ToastStack from '$lib/components/ui/ToastStack.svelte';
 
   let { children } = $props();

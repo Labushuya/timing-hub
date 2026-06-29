@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { authStore } from '$lib/stores/auth.js';
-  import { toastStore } from '$lib/stores/toast.js';
+  import { authStore } from '$lib/stores/auth.svelte.js';
+  import { toastStore } from '$lib/stores/toast.svelte.js';
   import Button from '$lib/components/ui/Button.svelte';
 
   // ---- Types -----------------------------------------------------------------

@@ -126,6 +126,16 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerWsHub(app);
 
   // -------------------------------------------------------------------------
+  // Scoring worker (background, non-blocking)
+  // -------------------------------------------------------------------------
+  const { startScoringWorker } = await import('./services/scoring/index.js');
+  const scoringWorker = startScoringWorker(app);
+  app.addHook('onClose', async () => {
+    app.log.info('Closing scoring worker');
+    await scoringWorker.close();
+  });
+
+  // -------------------------------------------------------------------------
   // Sentry error handler (must be last)
   // -------------------------------------------------------------------------
   if (SENTRY_DSN) {

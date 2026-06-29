@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
-  import { wsStore } from '$lib/stores/ws.js';
-  import { offlineStore } from '$lib/stores/offline.js';
+  import { wsStore } from '$lib/stores/ws.svelte.js';
+  import { offlineStore } from '$lib/stores/offline.svelte.js';
   import StampButton from '$lib/components/zeitnehmer/StampButton.svelte';
   import StartnummerInput from '$lib/components/zeitnehmer/StartnummerInput.svelte';
   import TimeQueue from '$lib/components/zeitnehmer/TimeQueue.svelte';
@@ -52,6 +52,7 @@
   const wsStatus = $derived(wsStore.status);
   const isConnected = $derived(wsStatus === 'connected');
   const pendingCount = $derived(offlineStore.pending);
+  const isSyncing = $derived(offlineStore.syncing);
 
   // ---- Session init ----------------------------------------------------------
 
@@ -159,14 +160,49 @@
   // ---- WS Timy messages -------------------------------------------------------
 
   let unsubTimyTime: (() => void) | null = null;
+  let unsubTimeEntry: (() => void) | null = null;
+  let unsubConfirmAck: (() => void) | null = null;
 
   function setupTimyWsHandler() {
+    // timy_time: bridge sends raw impulse → server echoes back here (legacy path)
     unsubTimyTime = wsStore.onMessage('timy_time', (msg) => {
-      // Timy bridge pushes time events via WS
       const synthetic = new CustomEvent('stamp', {
         detail: { timestamp: msg.raw_time_ms as number }
       });
       handleStamp(synthetic as CustomEvent<{ timestamp: number }>);
+    });
+
+    // time_entry: server confirms a bridge-originated time and pushes it to us
+    unsubTimeEntry = wsStore.onMessage('time_entry', (msg) => {
+      const entryId = msg.entry_id as string;
+      // Avoid adding duplicates that were already added via handleStamp
+      const exists = pendingEntries.some((e) => e.entry_id === entryId);
+      if (!exists) {
+        const rawTimeMs = msg.raw_time_ms as number;
+        const now = new Date(rawTimeMs);
+        const timeDisplay = now.toLocaleTimeString('de-DE', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          fractionalSecondDigits: 2
+        });
+        pendingEntries = [
+          {
+            entry_id: entryId,
+            time_display: (msg.time_display as string | undefined) ?? timeDisplay,
+            raw_time_ms: rawTimeMs,
+            startnummer: (msg.startnummer as number | null) ?? null,
+            client_seq: rawTimeMs
+          },
+          ...pendingEntries
+        ];
+      }
+    });
+
+    // confirm_ack: server acknowledges a confirm_entry message — remove from queue
+    unsubConfirmAck = wsStore.onMessage('confirm_ack', (msg) => {
+      const entryId = msg.entry_id as string;
+      pendingEntries = pendingEntries.filter((e) => e.entry_id !== entryId);
     });
   }
 
@@ -180,8 +216,17 @@
           entry_id: entry.entry_id,
           startnummer: confirmedStartnummer
         });
+      } else {
+        // REST fallback when WS is disconnected
+        await fetch(`${API_BASE}/v1/times/${encodeURIComponent(entry.entry_id)}/confirm`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ startnummer: confirmedStartnummer })
+        });
       }
-      // Remove from pending queue
+      // Remove from pending queue optimistically — server ack via WS or REST above
       pendingEntries = pendingEntries.filter((e) => e.entry_id !== entry.entry_id);
     } catch (err) {
       console.error('Failed to confirm entry:', err);
@@ -208,19 +253,25 @@
       if (session?.mode === 'timy') {
         startTimyPolling();
       }
-      wsStore.connect();
+      // Use Zeitnehmer-specific WS connection with session token
+      wsStore.connectAsZeitnehmer(postenToken, session?.posten_id ?? '');
       setupTimyWsHandler();
-
-      // Sync offline queue if connected
-      if (isConnected) {
-        offlineStore.sync().catch(console.warn);
-      }
     });
+  });
+
+  // Sync offline queue whenever WS reconnects
+  $effect(() => {
+    if (wsStatus === 'connected' && pendingCount > 0) {
+      offlineStore.sync(postenToken).catch(console.warn);
+    }
   });
 
   onDestroy(() => {
     stopTimyPolling();
     unsubTimyTime?.();
+    unsubTimeEntry?.();
+    unsubConfirmAck?.();
+    wsStore.disconnect();
   });
 </script>
 
@@ -277,12 +328,12 @@
       <!-- Stamp button — centered, dominant -->
       <div class="stamp-area">
         <StampButton
-          disabled={session.mode === 'timy'}
-          title={session.mode === 'timy' ? 'Timy controls timing' : 'Tap to stamp'}
+          timyMode={session.mode === 'timy'}
+          title="ZEIT ERFASSEN"
           onstamp={handleStamp}
         />
         {#if session.mode === 'timy'}
-          <p class="timy-hint">Timy is controlling timing. Manual stamps disabled.</p>
+          <p class="timy-hint">Timy steuert die Zeitmessung. Manueller Stempel deaktiviert.</p>
         {/if}
       </div>
 
@@ -313,7 +364,9 @@
       <div class="offline-banner-inner">
         <div class="offline-status">
           <span class="offline-dot" aria-hidden="true"></span>
-          {#if wsStatus === 'offline'}
+          {#if isSyncing}
+            <span>Syncing {pendingCount} entries…</span>
+          {:else if wsStatus === 'offline'}
             <span>Offline — entries queued locally</span>
           {:else if wsStatus === 'reconnecting'}
             <span>Reconnecting…</span>

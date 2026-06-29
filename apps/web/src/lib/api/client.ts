@@ -20,7 +20,7 @@ import type {
   RegistrationToken,
   UserRole
 } from '@timing-hub/shared-types';
-import { authStore } from '$lib/stores/auth.js';
+import { authStore } from '$lib/stores/auth.svelte.js';
 
 // ---- Error type -------------------------------------------------------------
 

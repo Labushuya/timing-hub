@@ -3,24 +3,30 @@
 
   interface Props {
     disabled?: boolean;
+    /** When true, the button shows "Timy aktiv" and is visually grayed out */
+    timyMode?: boolean;
     title?: string;
     onstamp?: (e: CustomEvent<{ timestamp: number }>) => void;
   }
 
-  let { disabled = false, title = 'Stamp', onstamp }: Props = $props();
+  let { disabled = false, timyMode = false, title = 'ZEIT ERFASSEN', onstamp }: Props = $props();
+
+  // Effective disabled state: explicitly disabled OR timy is controlling timing
+  const isDisabled = $derived(disabled || timyMode);
 
   // ---- State -----------------------------------------------------------------
 
   let processing = $state(false);
   let lastStampTime = $state<number | null>(null);
   let pressing = $state(false);
+  let flashing = $state(false);
 
   const DEBOUNCE_MS = 500;
 
   // ---- Stamp action ----------------------------------------------------------
 
   function doStamp() {
-    if (disabled || processing) return;
+    if (isDisabled || processing) return;
 
     const now = Date.now();
 
@@ -30,12 +36,16 @@
 
     // Haptic feedback
     if ('vibrate' in navigator) {
-      navigator.vibrate(50);
+      navigator.vibrate([50]);
     }
 
     // Visual press feedback
     pressing = true;
     setTimeout(() => { pressing = false; }, 150);
+
+    // Color flash: #e63012 → normal (handled via CSS class)
+    flashing = true;
+    setTimeout(() => { flashing = false; }, 300);
 
     processing = true;
 
@@ -53,23 +63,36 @@
       doStamp();
     }
   }
+
+  // Derive visible label
+  const visibleLabel = $derived(timyMode ? 'Timy aktiv' : title);
 </script>
 
 <button
   class="stamp-btn"
   class:pressing
-  class:disabled
-  {disabled}
+  class:flashing
+  class:disabled={isDisabled}
+  class:timy-mode={timyMode}
+  disabled={isDisabled}
   onclick={doStamp}
   onkeydown={handleKeydown}
-  aria-label="{title} — tap to record time"
+  aria-label="{visibleLabel} — tap to record time"
   aria-busy={processing}
-  aria-disabled={disabled}
+  aria-disabled={isDisabled}
   type="button"
 >
   <div class="stamp-inner">
     {#if processing}
       <span class="stamp-spinner" aria-hidden="true"></span>
+    {:else if timyMode}
+      <!-- Timy active indicator -->
+      <span class="stamp-icon timy-icon" aria-hidden="true">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+        </svg>
+      </span>
+      <span class="stamp-label">{visibleLabel}</span>
     {:else}
       <span class="stamp-icon" aria-hidden="true">
         <!-- Stopwatch icon -->
@@ -81,7 +104,7 @@
           <line x1="19.07" y1="5.93" x2="17.66" y2="7.34"/>
         </svg>
       </span>
-      <span class="stamp-label">{title}</span>
+      <span class="stamp-label">{visibleLabel}</span>
     {/if}
   </div>
 
@@ -98,7 +121,7 @@
     align-items: center;
     justify-content: center;
     width: 100%;
-    min-height: 200px;
+    min-height: 180px;
     max-width: 400px;
     background: var(--color-primary);
     border: none;
@@ -109,7 +132,7 @@
     touch-action: manipulation;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
-    transition: background-color 120ms;
+    transition: background-color 120ms, transform 80ms, box-shadow 120ms;
     /* Subtle shadow for depth */
     box-shadow:
       0 4px 16px rgba(230, 48, 18, 0.4),
@@ -129,11 +152,32 @@
       0 1px 2px rgba(0, 0, 0, 0.2);
   }
 
+  /* Color flash on tap: briefly jump to accent then fade back */
+  .stamp-btn.flashing {
+    background: #e63012;
+    animation: stamp-flash 300ms ease-out forwards;
+  }
+
+  @keyframes stamp-flash {
+    0%   { background: #ff4422; box-shadow: 0 0 0 4px rgba(230, 48, 18, 0.4), 0 4px 16px rgba(230, 48, 18, 0.5); }
+    60%  { background: #e63012; }
+    100% { background: var(--color-primary); box-shadow: 0 4px 16px rgba(230, 48, 18, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3); }
+  }
+
+  /* Disabled: grayed out */
   .stamp-btn.disabled {
     background: var(--color-surface-3);
     box-shadow: none;
     cursor: not-allowed;
     color: var(--color-text-subtle);
+  }
+
+  /* Timy mode: slightly different disabled appearance to signal "intentional" */
+  .stamp-btn.timy-mode {
+    background: var(--color-surface-2);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+    border: 2px dashed var(--color-border);
+    color: var(--color-text-muted);
   }
 
   .stamp-inner {
@@ -150,6 +194,10 @@
     align-items: center;
     justify-content: center;
     opacity: 0.9;
+  }
+
+  .timy-icon {
+    opacity: 0.6;
   }
 
   .stamp-label {
@@ -184,5 +232,12 @@
   @keyframes ripple-fade {
     from { opacity: 1; transform: scale(0.95); }
     to { opacity: 0; transform: scale(1.05); }
+  }
+
+  /* Ensure large enough touch targets on mobile */
+  @media (max-width: 600px) {
+    .stamp-btn {
+      min-height: 200px;
+    }
   }
 </style>

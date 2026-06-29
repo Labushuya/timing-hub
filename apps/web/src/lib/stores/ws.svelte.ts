@@ -9,7 +9,7 @@
  *   - Event subscription management
  */
 
-import { authStore } from './auth.js';
+import { authStore } from './auth.svelte.js';
 
 // ---- Types ------------------------------------------------------------------
 
@@ -24,7 +24,7 @@ type MessageHandler = (message: WsMessage) => void;
 
 // ---- Constants --------------------------------------------------------------
 
-const WS_BASE = import.meta.env.VITE_WS_BASE ?? 'wss://api.timing-hub.app/ws';
+const WS_BASE = import.meta.env.VITE_WS_BASE ?? 'wss://api.timinghub.de/ws';
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const RECONNECT_BASE_MS = 50;
 const RECONNECT_MAX_MS = 30_000;
@@ -38,6 +38,11 @@ function createWsStore() {
   let reconnectAttempts = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Zeitnehmer mode: when set, connectAsZeitnehmer was used and reconnects use
+  // these instead of the JWT from authStore.
+  let zeitnehmerToken: string | null = null;
+  let zeitnehmerPostenId: string | null = null;
 
   const messageHandlers = new Map<string, Set<MessageHandler>>();
   const messageQueue: WsMessage[] = [];
@@ -135,8 +140,14 @@ function createWsStore() {
 
     status = reconnectAttempts > 0 ? 'reconnecting' : 'connecting';
 
-    const token = authStore.accessToken;
-    const url = token ? `${WS_BASE}?token=${encodeURIComponent(token)}` : WS_BASE;
+    // Zeitnehmer mode takes precedence over JWT auth
+    let url: string;
+    if (zeitnehmerToken) {
+      url = `${WS_BASE}?token=${encodeURIComponent(zeitnehmerToken)}&type=zeitnehmer`;
+    } else {
+      const token = authStore.accessToken;
+      url = token ? `${WS_BASE}?token=${encodeURIComponent(token)}` : WS_BASE;
+    }
 
     try {
       socket = new WebSocket(url);
@@ -186,6 +197,8 @@ function createWsStore() {
     clearTimers();
     subscribedEvents.clear();
     messageQueue.length = 0;
+    zeitnehmerToken = null;
+    zeitnehmerPostenId = null;
     if (socket) {
       socket.close(1000, 'Client disconnected');
       socket = null;
@@ -242,15 +255,37 @@ function createWsStore() {
     }
   }
 
+  /**
+   * Connect as a Zeitnehmer (posten operator) using a session token.
+   * The WS URL will include ?token=<sessionToken>&type=zeitnehmer.
+   * Subsequent auto-reconnects will reuse the same token.
+   *
+   * Call disconnect() before switching back to a JWT-based connection.
+   */
+  function connectAsZeitnehmer(token: string, postenId: string) {
+    // Tear down any existing connection first
+    if (socket) {
+      clearTimers();
+      socket.close(1000, 'Switching to zeitnehmer mode');
+      socket = null;
+    }
+    reconnectAttempts = 0;
+    zeitnehmerToken = token;
+    zeitnehmerPostenId = postenId;
+    connect();
+  }
+
   return {
     // State
     get status() { return status; },
     get isConnected() { return isConnected; },
     get isOffline() { return isOffline; },
     get queueLength() { return messageQueue.length; },
+    get zeitnehmerPostenId() { return zeitnehmerPostenId; },
 
     // Actions
     connect,
+    connectAsZeitnehmer,
     disconnect,
     subscribe,
     unsubscribe,

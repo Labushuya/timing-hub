@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { authStore } from '$lib/stores/auth.js';
+  import { authStore } from '$lib/stores/auth.svelte.js';
 
   let { children } = $props();
 
