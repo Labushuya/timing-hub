@@ -1,0 +1,21 @@
+[server]
+ws_url = "wss://api.timinghub.de/ws"
+bridge_token = "REPLACE_WITH_BRIDGE_TOKEN_FROM_UI"
+posten_id = "REPLACE_WITH_POSTEN_UUID"
+
+[device]
+vendor_id = 0x0c4a
+product_id = 0x0889
+auto_detect = true
+
+[reliability]
+reconnect_interval_s = 5
+ack_timeout_ms = 3000
+local_buffer_path = "./bridge-buffer.db"
+max_buffer_entries = 10000
+
+[tray]
+show_icon = true
+
+[http]
+port = 7272

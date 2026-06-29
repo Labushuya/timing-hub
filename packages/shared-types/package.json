@@ -1,0 +1,9 @@
+{
+  "name": "@timing-hub/shared-types",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit" },
+  "devDependencies": { "typescript": "^5.5.0" },
+  "tsconfig": { "extends": "../../tsconfig.base.json", "include": ["src"] }
+}
