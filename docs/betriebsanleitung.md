@@ -468,4 +468,4 @@ A: Ja. Unter den Veranstaltungseinstellungen kann die öffentliche Ergebnis-URL 
 
 ---
 
-*Timing Hub — Betriebsanleitung | Delos Cloud GmbH | Stand: Juni 2026*
+*Timing Hub — Betriebsanleitung | Stand: Juni 2026*
