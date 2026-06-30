@@ -21,6 +21,7 @@ import type {
 import type { JSONValue } from 'postgres';
 import { z } from 'zod';
 import { enqueueCompute } from '../services/scoring/index.js';
+import { sanitizeString } from '../middleware/validate.js';
 
 // ---------------------------------------------------------------------------
 // Config schemas
@@ -292,9 +293,15 @@ async function eventRoutesFn(app: FastifyInstance): Promise<void> {
       const body: CreateEventBody = parseResult.data;
       const userId = request.user.sub;
 
+      // Sanitize user-supplied text fields before persisting
+      const safeName        = sanitizeString(body.name, 100);
+      const safeDescription = body.description !== undefined
+        ? sanitizeString(body.description, 500)
+        : undefined;
+
       // Derive year from starts_at (unix ms)
       const year = new Date(body.starts_at).getFullYear();
-      const baseSlug = generateSlug(body.name, year);
+      const baseSlug = generateSlug(safeName, year);
       const slug = await ensureUniqueSlug(app.db, baseSlug);
 
       // Insert event
@@ -305,8 +312,8 @@ async function eventRoutesFn(app: FastifyInstance): Promise<void> {
         VALUES (
           ${userId},
           ${slug},
-          ${body.name},
-          ${body.description ?? null},
+          ${safeName},
+          ${safeDescription ?? null},
           ${body.format},
           ${body.starts_at},
           ${body.ends_at ?? null},
@@ -554,6 +561,14 @@ async function eventRoutesFn(app: FastifyInstance): Promise<void> {
 
       const body: PatchEventBody = parseResult.data;
 
+      // Sanitize mutable text fields
+      const safeName = body.name !== undefined
+        ? sanitizeString(body.name, 100)
+        : undefined;
+      const safeDescription = body.description !== undefined && body.description !== null
+        ? sanitizeString(body.description, 500)
+        : body.description; // preserve null / undefined as-is
+
       // Guard: cannot change format if time entries exist — format is immutable but not in the patch schema.
       // Ensure config changes don't break things if time entries exist
       if (body.config !== undefined) {
@@ -570,8 +585,8 @@ async function eventRoutesFn(app: FastifyInstance): Promise<void> {
 
       const updatedRows = await app.db<EventRow[]>`
         UPDATE events SET
-          name        = COALESCE(${body.name        ?? null}, name),
-          description = CASE WHEN ${body.description !== undefined} THEN ${body.description ?? null} ELSE description END,
+          name        = COALESCE(${safeName        ?? null}, name),
+          description = CASE WHEN ${safeDescription !== undefined} THEN ${safeDescription ?? null} ELSE description END,
           starts_at   = COALESCE(${body.starts_at   ?? null}, starts_at),
           ends_at     = CASE WHEN ${body.ends_at     !== undefined} THEN ${body.ends_at ?? null} ELSE ends_at END,
           timezone    = COALESCE(${body.timezone     ?? null}, timezone),

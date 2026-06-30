@@ -19,6 +19,10 @@ import {
   tokenService,
 } from '../services/tokenService.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import {
+  authRateLimitConfig,
+  registerRateLimitConfig,
+} from '../plugins/security.js';
 
 // ---------------------------------------------------------------------------
 // JSON Schemas (inline — no zod-to-json-schema dep needed)
@@ -101,7 +105,7 @@ async function authRoutesFn(app: FastifyInstance): Promise<void> {
   app.post(
     '/register',
     {
-      config: { rateLimit: { max: 10, timeWindow: '1 hour' } },
+      config: { rateLimit: registerRateLimitConfig },
       schema: {
         body: registerBodySchema,
         response: { 200: tokenPairResponse },
@@ -193,7 +197,7 @@ async function authRoutesFn(app: FastifyInstance): Promise<void> {
   app.post(
     '/login',
     {
-      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+      config: { rateLimit: authRateLimitConfig },
       schema: {
         body: loginBodySchema,
         response: { 200: tokenPairResponse },

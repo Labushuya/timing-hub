@@ -10,7 +10,10 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "seed": "pnpm --filter @timing-hub/api seed",
+    "load-test": "tsx scripts/load-test.ts",
+    "timy-sim": "tsx scripts/test-timy-simulator.ts"
   },
   "devDependencies": {
     "turbo": "^2.0.0"

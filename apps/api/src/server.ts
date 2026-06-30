@@ -1,10 +1,12 @@
 import Fastify, { type FastifyInstance, type FastifyError } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import websocket from '@fastify/websocket';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import * as Sentry from '@sentry/node';
+import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
@@ -27,10 +29,12 @@ if (!DATABASE_URL) throw new Error('DATABASE_URL env var is required');
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
-const SENTRY_DSN = process.env.SENTRY_DSN;
-if (SENTRY_DSN) {
-  Sentry.init({ dsn: SENTRY_DSN, environment: NODE_ENV });
+// CORS origin validation — required in production
+const CORS_ORIGIN_RAW = process.env.CORS_ORIGIN;
+if (NODE_ENV === 'production' && !CORS_ORIGIN_RAW) {
+  throw new Error('CORS_ORIGIN env var is required in production');
 }
+const CORS_ORIGINS = CORS_ORIGIN_RAW?.split(',') ?? ['http://localhost:3000'];
 
 // ---------------------------------------------------------------------------
 // Package version (optional — may not exist in all envs)
@@ -43,6 +47,36 @@ try {
   pkgVersion = pkg.version ?? 'unknown';
 } catch {
   // non-fatal
+}
+
+// ---------------------------------------------------------------------------
+// Sentry — initialise before any route/plugin registration
+// ---------------------------------------------------------------------------
+const SENTRY_DSN = process.env.SENTRY_DSN;
+
+// Non-actionable HTTP status codes — do not alert on these
+const SENTRY_IGNORED_STATUS_CODES = new Set([401, 404, 429]);
+
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: NODE_ENV,
+    release: pkgVersion,
+    integrations: [nodeProfilingIntegration()],
+    tracesSampleRate: NODE_ENV === 'production' ? 0.1 : 1.0,
+    profilesSampleRate: NODE_ENV === 'production' ? 0.1 : 1.0,
+    beforeSend(event, hint) {
+      // Filter out non-actionable HTTP errors (404, 401, 429)
+      const err = hint?.originalException;
+      if (err && typeof err === 'object' && 'statusCode' in err) {
+        const statusCode = (err as { statusCode?: number }).statusCode;
+        if (statusCode !== undefined && SENTRY_IGNORED_STATUS_CODES.has(statusCode)) {
+          return null;
+        }
+      }
+      return event;
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -72,8 +106,21 @@ export async function buildServer(): Promise<FastifyInstance> {
   // Global plugins
   // -------------------------------------------------------------------------
   await app.register(cors, {
-    origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3000'],
+    origin: CORS_ORIGINS,
     credentials: true,
+  });
+
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        connectSrc: ["'self'", 'wss:', 'https:'],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:'],
+      },
+    },
+    crossOriginEmbedderPolicy: false, // needed for some browsers
   });
 
   await app.register(rateLimit, {
@@ -114,6 +161,26 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(authPlugin);
 
   // -------------------------------------------------------------------------
+  // Request ID plugin
+  // -------------------------------------------------------------------------
+  const { requestIdPlugin } = await import('./plugins/requestId.js');
+  await app.register(requestIdPlugin);
+
+  // -------------------------------------------------------------------------
+  // Request logging plugin
+  // -------------------------------------------------------------------------
+  const { requestLoggingPlugin } = await import('./plugins/requestLogging.js');
+  await app.register(requestLoggingPlugin);
+
+  // -------------------------------------------------------------------------
+  // Metrics plugin
+  // -------------------------------------------------------------------------
+  const { metricsPlugin } = await import('./plugins/metrics.js');
+  await app.register(metricsPlugin);
+
+  app.log.info({ origins: CORS_ORIGINS }, 'CORS allowed origins');
+
+  // -------------------------------------------------------------------------
   // Routes
   // -------------------------------------------------------------------------
   const { registerRoutes } = await import('./routes/index.js');
@@ -139,10 +206,31 @@ export async function buildServer(): Promise<FastifyInstance> {
   // Sentry error handler (must be last)
   // -------------------------------------------------------------------------
   if (SENTRY_DSN) {
-    app.setErrorHandler((error: FastifyError, _request, reply) => {
-      Sentry.captureException(error);
-      app.log.error(error);
+    // Wire Sentry's Fastify error handler for automatic transaction + error capture
+    Sentry.setupFastifyErrorHandler(app);
+
+    // Override the default error handler to:
+    //  - skip non-actionable errors (already filtered via beforeSend, but avoid noise)
+    //  - attach user context from JWT when available
+    //  - return a clean JSON error body
+    app.setErrorHandler((error: FastifyError, request, reply) => {
       const statusCode = error.statusCode ?? 500;
+
+      // Attach user context if JWT payload is available
+      try {
+        const jwtPayload = request.user as { sub?: string; email?: string } | undefined;
+        if (jwtPayload?.sub) {
+          Sentry.setUser({ id: jwtPayload.sub, ...(jwtPayload.email !== undefined ? { email: jwtPayload.email } : {}) });
+        }
+      } catch {
+        // JWT not decoded — ignore
+      }
+
+      if (!SENTRY_IGNORED_STATUS_CODES.has(statusCode)) {
+        Sentry.captureException(error);
+      }
+
+      app.log.error(error);
       reply.status(statusCode).send({
         statusCode,
         error: error.name,
