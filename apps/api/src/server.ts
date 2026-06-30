@@ -34,7 +34,7 @@ const CORS_ORIGIN_RAW = process.env.CORS_ORIGIN;
 if (NODE_ENV === 'production' && !CORS_ORIGIN_RAW) {
   throw new Error('CORS_ORIGIN env var is required in production');
 }
-const CORS_ORIGINS = CORS_ORIGIN_RAW?.split(',') ?? ['http://localhost:3000'];
+const CORS_ORIGINS = CORS_ORIGIN_RAW?.split(',') ?? ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174'];
 
 // ---------------------------------------------------------------------------
 // Package version (optional — may not exist in all envs)

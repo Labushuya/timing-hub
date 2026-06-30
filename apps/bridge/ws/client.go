@@ -113,9 +113,9 @@ func (c *BridgeClient) Connect(ctx context.Context) error {
 	return nil
 }
 
-// SendImpulse buffers a TimyImpulse to the SQLite WAL so RunSendLoop can
+// SendImpulse buffers a TimyEvent to the SQLite WAL so RunSendLoop can
 // deliver it. It assigns the next bridge_seq and persists the row.
-func (c *BridgeClient) SendImpulse(impulse usb.TimyImpulse) error {
+func (c *BridgeClient) SendImpulse(impulse usb.TimyEvent) error {
 	seq := atomic.AddInt64(&c.bridgeSeq, 1)
 	c.dbMu.Lock()
 	defer c.dbMu.Unlock()

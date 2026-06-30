@@ -115,6 +115,17 @@ interface PostenRow {
   created_at:   string;
 }
 
+interface SectionTargetJoinedRow {
+  id:               string;
+  event_id:         string;
+  from_posten_id:   string | null;
+  from_posten_code: string | null;
+  to_posten_id:     string | null;
+  to_posten_code:   string | null;
+  class:            string | null;
+  target_time_ms:   string; // BIGINT as string
+}
+
 // ---------------------------------------------------------------------------
 // Slug helpers
 // ---------------------------------------------------------------------------
@@ -489,6 +500,24 @@ async function eventRoutesFn(app: FastifyInstance): Promise<void> {
         SELECT * FROM posten WHERE event_id = ${event.id} ORDER BY sort_order
       `;
 
+      // Fetch section targets with posten codes
+      const sectionTargets = await app.db<SectionTargetJoinedRow[]>`
+        SELECT
+          st.id,
+          st.event_id,
+          st.from_posten_id,
+          pf.code AS from_posten_code,
+          st.to_posten_id,
+          pt.code AS to_posten_code,
+          st.class,
+          st.target_time_ms
+        FROM section_targets st
+        LEFT JOIN posten pf ON pf.id = st.from_posten_id
+        LEFT JOIN posten pt ON pt.id = st.to_posten_id
+        WHERE st.event_id = ${event.id}
+        ORDER BY st.created_at ASC
+      `;
+
       // Counts
       const countRow = await app.db<{
         result_count:      string;
@@ -514,9 +543,21 @@ async function eventRoutesFn(app: FastifyInstance): Promise<void> {
         created_at:  Number(p.created_at),
       }));
 
+      const sectionTargetsOut = sectionTargets.map((st) => ({
+        id:               st.id,
+        event_id:         st.event_id,
+        from_posten_id:   st.from_posten_id,
+        from_posten_code: st.from_posten_code,
+        to_posten_id:     st.to_posten_id,
+        to_posten_code:   st.to_posten_code,
+        class:            st.class,
+        target_time_ms:   Number(st.target_time_ms),
+      }));
+
       return reply.send({
         ...serialiseEvent(event, []),
         posten: postenOut,
+        section_targets:   sectionTargetsOut,
         result_count:      parseInt(countRow[0]?.result_count      ?? '0', 10),
         participant_count: parseInt(countRow[0]?.participant_count  ?? '0', 10),
       });

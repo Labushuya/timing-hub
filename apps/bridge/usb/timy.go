@@ -17,6 +17,7 @@ package usb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -174,6 +175,9 @@ func (d *TimyDevice) Open() error {
 				usbCtx.Close()
 				return fmt.Errorf("timy: open bulk-in endpoint: %w", err)
 			}
+			// Apply read timeout so Read() does not block indefinitely;
+			// the ReadLoop checks ctx.Done() between each bounded read.
+			inEp.Timeout = readTimeout
 		case ep.Direction == gousb.EndpointDirectionOut &&
 			ep.TransferType == gousb.TransferTypeBulk && outEp == nil:
 			outEp, err = iface.OutEndpoint(ep.Number)
@@ -249,7 +253,11 @@ func (d *TimyDevice) ReadLoop(ctx context.Context, ch chan<- TimyImpulse) {
 
 		n, err := inEp.Read(buf)
 		if err != nil {
-			// Any read error (including device disconnect) terminates the loop.
+			// A timeout means no data arrived within readTimeout; check ctx and
+			// retry. Any other error (device disconnect, etc.) terminates the loop.
+			if isUSBTimeout(err) {
+				continue
+			}
 			return
 		}
 		if n == 0 {
@@ -548,4 +556,11 @@ func (m *Monitor) runOnce(eventBus chan<- TimyEvent) error {
 // Stop signals the monitor to stop after the current read completes.
 func (m *Monitor) Stop() {
 	m.once.Do(func() { close(m.stopCh) })
+}
+
+// isUSBTimeout reports whether err is a USB transfer timeout.
+// gousb wraps libusb's LIBUSB_ERROR_TIMEOUT as a *gousb.TransferTimeoutError.
+func isUSBTimeout(err error) bool {
+	var te *gousb.TransferTimeoutError
+	return errors.As(err, &te)
 }

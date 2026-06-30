@@ -119,7 +119,7 @@ export interface CreateTokenPayload {
 
 // ---- Base request -----------------------------------------------------------
 
-const API_BASE = (import.meta.env.PUBLIC_API_URL ?? import.meta.env.VITE_API_BASE ?? '/api') as string;
+const API_BASE = (import.meta.env.PUBLIC_API_URL ?? import.meta.env.VITE_API_BASE ?? 'http://localhost:3001/v1') as string;
 
 let refreshInProgress: Promise<boolean> | null = null;
 

@@ -35,10 +35,22 @@ Timing Hub replaces manual scoring sheets and Excel files at classic motorsport 
 
 ### Motorsport formats supported
 
-- **GLP** — Gleichmäßigkeitsprüfung (target time vs. actual, penalty points)
-- **Sonderprüfung** — Fastest time wins, sector support
-- **Rundstrecke** — Lap times, best lap, gap to leader
-- **Orientierungsfahrt / Rallye** — Multi-section, early/late penalties
+See [Supported Event Formats](#supported-event-formats) for details.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | SvelteKit 2 + Svelte 5, Tailwind 4, PWA service worker |
+| API | Fastify 5, TypeScript, Node.js 20 |
+| Scoring engine | Pure TypeScript (shared package) |
+| Database | PostgreSQL 16 + pgbouncer |
+| Cache / queues | Redis 7 (pub/sub + BullMQ) |
+| Timy Bridge | Go 1.23 (USB serial, cross-platform binary) |
+| Dynamic DNS | DuckDNS (self-hosted deployments) |
+| Monorepo | pnpm workspaces |
 
 ---
 
@@ -71,6 +83,15 @@ timing-hub/
 └── infra/
     └── docker-compose.dev.yml
 ```
+
+---
+
+## Dokumentation
+
+| Dokument | Beschreibung |
+|---|---|
+| [Betriebsanleitung](docs/betriebsanleitung.md) | Vollständige Anleitung für Veranstalter, Zeitnehmer und Kommissare |
+| [Self-Hosting (Raspberry Pi)](docs/self-hosting-raspberry-pi.md) | Schritt-für-Schritt Setup auf eigenem Server |
 
 ---
 
@@ -116,6 +137,9 @@ cp .env.example .env
 
 # Run database migrations
 pnpm --filter @timing-hub/api migrate
+
+# Seed test data (creates admin user + test registration token)
+pnpm seed
 
 # Start everything in parallel
 pnpm dev
@@ -164,6 +188,7 @@ The bridge exposes a local status API at `http://localhost:7272/status`.
 | PostgreSQL | Railway | Postgres 16 + pgbouncer |
 | Redis | Railway | Pub/Sub + BullMQ queues |
 | DNS | Cloudflare | timinghub.de + api.timinghub.de |
+| DNS (self-hosted) | DuckDNS | Dynamic DNS for Raspberry Pi setup |
 
 Required secrets in Railway/Vercel:
 `DATABASE_URL` · `REDIS_URL` · `JWT_SECRET` · `MASTER_ADMIN_TOKEN` · `CORS_ORIGIN` · `SENTRY_DSN` (optional)
@@ -175,9 +200,22 @@ Required secrets in Railway/Vercel:
 - [x] Phase 0 — Monorepo foundation, shared types, scoring engine
 - [x] Phase 1 — Auth, admin token system, event/participant/posten CRUD
 - [x] Phase 2 — WebSocket hub, live timing, scoring integration, dashboards
-- [ ] Phase 3 — Timy Bridge Go binary (USB protocol, cross-platform release)
-- [ ] Phase 4 — PWA service worker, i18n (DE/EN), PDF export, bundle optimization
-- [ ] Phase 5 — E2E tests, load testing, Sentry monitoring, beta with real organizer
+- [x] Phase 3 — Timy Bridge Go binary (USB protocol, cross-platform release)
+- [x] Phase 4 — PWA service worker, i18n (DE/EN), PDF export, bundle optimization
+- [x] Phase 5 — E2E tests, security hardening, monitoring, production config
+- [x] Self-hosting — Raspberry Pi 5 setup with DuckDNS + Nginx + Docker Compose
+- [x] Domain-knowledge corrections — correct GLP scoring (absolute timestamps → section deltas)
+
+---
+
+## Supported Event Formats
+
+| Format | Scoring logic |
+|---|---|
+| **GLP** (Gleichmäßigkeitsprüfung) | Sollzeit-Abweichung ergibt Strafpunkte; Sektions-Sollzeiten möglich. Wertung basiert auf delta zwischen Sektions-Timestamps — nicht auf absoluten Zeiten. |
+| **Sonderprüfung** | Schnellste Gesamtzeit gewinnt; Sektoren werden aufaddiert. |
+| **Rundstrecke** | Rundenzeiten, Bestzeit und Rückstand auf Führenden werden live berechnet. |
+| **Orientierungsfahrt** | Sektionen mit konfigurierbarer Früh- und Spät-Strafe (Sekunden pro Abweichungssekunde). |
 
 ---
 

@@ -7,6 +7,7 @@ import { postenRoutes } from './posten.js';
 import { participantRoutes } from './participants.js';
 import { timesRoutes } from './times.js';
 import { resultsRoutes } from './results.js';
+import { sectionTargetRoutes } from './section-targets.js';
 
 const API_PREFIX = '/api/v1';
 
@@ -17,12 +18,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Versioned API routes
   await app.register(
     async (api) => {
-      await api.register(authRoutes,        { prefix: '/auth' });
-      await api.register(adminRoutes,       { prefix: '/admin' });
-      await api.register(eventRoutes,       { prefix: '/events' });
-      // participantRoutes, postenRoutes register full paths under /events/:slug/...
+      await api.register(authRoutes,           { prefix: '/auth' });
+      await api.register(adminRoutes,          { prefix: '/admin' });
+      await api.register(eventRoutes,          { prefix: '/events' });
+      // participantRoutes, postenRoutes, sectionTargetRoutes register full paths under /events/:slug/...
       await api.register(participantRoutes);
       await api.register(postenRoutes);
+      await api.register(sectionTargetRoutes);
       await api.register(timesRoutes);
       await api.register(resultsRoutes);
     },

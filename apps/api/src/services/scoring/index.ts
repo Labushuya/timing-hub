@@ -17,9 +17,10 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { Queue, Worker } from 'bullmq';
+import { createHash } from 'node:crypto';
 import { computeResults } from '@timing-hub/scoring-engine';
-import type { ScoringInput } from '@timing-hub/scoring-engine';
-import type { TimeEntry, Participant, EventConfig } from '@timing-hub/shared-types';
+import type { ScoringInput, ExtendedScoringInput, PostenWithOrder, SectionTarget } from '@timing-hub/scoring-engine';
+import type { TimeEntry, Participant, EventConfig, GLPConfig } from '@timing-hub/shared-types';
 
 export type ScoringJobData =
   | { type: 'compute'; eventId: string }
@@ -66,6 +67,27 @@ export async function enqueueCompute(
       delay: 500, // debounce: wait 500 ms after the last entry
     },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic UUID v4-shaped ID derived from event_id + participant_id.
+ * Ensures the results row always gets the same id across recomputes,
+ * avoiding ghost rows when the ON CONFLICT path is not hit on first insert.
+ */
+function resultId(eventId: string, participantId: string): string {
+  const hash = createHash('sha256').update(`${eventId}:${participantId}`).digest('hex');
+  // Shape as UUID v4 (variant 2, version 4 bits set for readability)
+  return [
+    hash.slice(0, 8),
+    hash.slice(8, 12),
+    `4${hash.slice(13, 16)}`,
+    `${(parseInt(hash[16]!, 16) & 0x3 | 0x8).toString(16)}${hash.slice(17, 20)}`,
+    hash.slice(20, 32),
+  ].join('-');
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +141,20 @@ interface ParticipantRow {
   notes: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface PostenRow {
+  id: string;
+  code: string;
+  role: string;
+  sort_order: number;
+}
+
+interface SectionTargetRow {
+  from_posten_id: string | null;
+  to_posten_id: string | null;
+  class: string | null;
+  target_time_ms: string | number;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,23 +271,66 @@ async function processCompute(app: FastifyInstance, eventId: string): Promise<vo
     return;
   }
 
-  // 4. Build ScoringInput
+  // 4. Load posten sorted by sort_order
+  const postenRows = await db<PostenRow[]>`
+    SELECT id, code, role, sort_order
+    FROM posten
+    WHERE event_id = ${eventId}
+    ORDER BY sort_order ASC
+  `;
+
+  // 5. Load section_targets
+  const sectionTargetRows = await db<SectionTargetRow[]>`
+    SELECT from_posten_id, to_posten_id, class, target_time_ms
+    FROM section_targets
+    WHERE event_id = ${eventId}
+  `;
+
+  // 6. Build ScoringInput (extended for GLP, base for all other formats)
   const entries: TimeEntry[] = entryRows.map(mapTimeEntryRow);
   const participants: Participant[] = participantRows.map(mapParticipantRow);
+  const posten: PostenWithOrder[] = postenRows;
+  const section_targets: SectionTarget[] = sectionTargetRows.map((r) => ({
+    from_posten_id: r.from_posten_id,
+    to_posten_id: r.to_posten_id,
+    class: r.class,
+    target_time_ms: Number(r.target_time_ms),
+  }));
 
-  const input: ScoringInput = {
-    entries,
-    participants,
-    config: event.config,
-  };
+  let input: ScoringInput | ExtendedScoringInput;
 
-  // 5. Compute results
+  if (event.format === 'glp') {
+    const glpConfig = event.config as GLPConfig;
+    // Map GLPConfig.run_scoring ('best_n_of_m') → ExtendedScoringInput ('best_of_n')
+    const rawRunScoring = glpConfig.run_scoring ?? 'sum';
+    const run_scoring: ExtendedScoringInput['run_scoring'] =
+      rawRunScoring === 'best_n_of_m' ? 'best_of_n' : rawRunScoring;
+
+    const extInput: ExtendedScoringInput = {
+      entries,
+      participants,
+      config: event.config,
+      posten,
+      section_targets,
+      run_scoring,
+      hide_target_times: glpConfig.hide_target_times ?? false,
+      ...(run_scoring === 'best_of_n' && glpConfig.run_best_n != null
+        ? { run_scoring_n: glpConfig.run_best_n }
+        : {}),
+    };
+    input = extInput;
+  } else {
+    input = { entries, participants, config: event.config };
+  }
+
+  // 7. Compute results
   const scoringResult = computeResults(input);
 
-  // 6. Upsert results into the results table
+  // 8. Upsert results into the results table
   const now = new Date().toISOString();
 
   for (const result of scoringResult.results) {
+    const rid = resultId(eventId, result.participant_id);
     await db`
       INSERT INTO results (
         id,
@@ -272,7 +351,7 @@ async function processCompute(app: FastifyInstance, eventId: string): Promise<vo
         class,
         scoring_detail
       ) VALUES (
-        gen_random_uuid(),
+        ${rid},
         ${eventId},
         ${result.participant_id},
         ${now},
@@ -313,7 +392,7 @@ async function processCompute(app: FastifyInstance, eventId: string): Promise<vo
     'Scoring compute: results upserted',
   );
 
-  // 7. Publish results_update to Redis channel event:{slug}
+  // 9. Publish results_update to Redis channel event:{slug}
   await app.redis.publish(
     `event:${event.slug}`,
     JSON.stringify({
