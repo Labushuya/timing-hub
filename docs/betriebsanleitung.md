@@ -228,7 +228,13 @@ Vor dem ersten Einsatz kurz prüfen: Ist der angezeigte Postenname korrekt?
 
 ---
 
-### Schritt 2: Timy anschließen (falls vorhanden)
+### Schritt 2: Zeitnahmegerät anschließen (falls vorhanden)
+
+---
+
+### Unterstützte Zeitnahmegeräte
+
+#### ALGE Timy 3 (USB)
 
 Der ALGE Timy 3 oder Timy pce erfasst absolute Uhrzeiten im Format `HH:MM:SS.mmm` beim Auslösen durch Lichtschranke oder Druckschalter.
 
@@ -240,6 +246,46 @@ Verbindung herstellen:
 Sobald verbunden, fließen Timy-Auslösungen automatisch in das System. Der Zeitnehmer muss nur noch die **Startnummer bestätigen**.
 
 **Timy-Ausdruck:** Der Timy druckt jede Auslösung automatisch auf dem angeschlossenen Drucker. Diesen Ausdruck aufbewahren — er ist Teil des offiziellen Protokolls.
+
+Config: `type = "alge_timy"` — Verbindung über USB, automatische Erkennung
+
+#### TAG Heuer CP-Serie (RS-232 / USB-Serial)
+
+Modelle: CP 450, CP 500, CP 520, CP 525, CP 540
+
+Verbindung: RS-232 Seriell oder USB-Serial-Adapter
+
+Typische Einstellungen: 9600 Baud, 8N1
+
+Config:
+```toml
+type = "tag_heuer_cp"
+serial_port = "COM3"  # Windows-Beispiel
+baud_rate = 9600
+```
+
+#### Trentmann RallyStar (RS-232 / USB-Serial)
+
+Verbindung: RS-232 Seriell oder USB-Serial-Adapter
+
+Typische Einstellungen: 9600 Baud, 8N1
+
+Config:
+```toml
+type = "trentmann_rallystar"
+serial_port = "COM4"  # Windows-Beispiel
+baud_rate = 9600
+```
+
+#### Hinweis: COM-Port ermitteln (Windows)
+
+Geräte-Manager → Anschlüsse (COM und LPT) → USB-Serial-Adapter suchen
+
+Der zugewiesene COM-Port (z.B. COM3, COM4) wird in der `bridge.toml` unter `serial_port` eingetragen.
+
+#### Hinweis: Manuelle Eingabe (immer verfügbar)
+
+Auch ohne Hardware-Gerät kann der Zeitnehmer Zeiten manuell im Browser eingeben — entweder per Knopfdruck (Systemzeit) oder durch direkte Eingabe einer Uhrzeit im Format `HH:MM:SS.mmm`.
 
 ---
 

@@ -27,13 +27,23 @@ type ServerConfig struct {
 	PostenID string `toml:"posten_id"`
 }
 
-// DeviceConfig holds USB device selection settings.
+// DeviceConfig holds device selection settings.
 type DeviceConfig struct {
+	// Type selects the driver: "alge_timy" | "tag_heuer_cp" |
+	// "trentmann_rallystar" | "auto".  Defaults to "auto".
+	Type string `toml:"type"`
+	// SerialPort is the RS-232/USB-serial port for serial devices,
+	// e.g. "COM3" or "/dev/ttyUSB0".
+	SerialPort string `toml:"serial_port"`
+	// BaudRate for serial devices (default 9600).
+	BaudRate int `toml:"baud_rate"`
 	// VendorID is the USB VID of the Alge Timy 3 (default 0x0c4a).
 	VendorID uint16 `toml:"vendor_id"`
 	// ProductID is the USB PID of the Alge Timy 3 (default 0x0889).
 	ProductID uint16 `toml:"product_id"`
 	// AutoDetect scans for the device automatically when true.
+	// Deprecated: set Type = "auto" instead; this field is kept for
+	// backwards compatibility with existing bridge.toml files.
 	AutoDetect bool `toml:"auto_detect"`
 }
 
@@ -63,6 +73,12 @@ type HTTPConfig struct {
 
 // defaults fills in zero values with sensible defaults.
 func defaults(cfg *Config) {
+	if cfg.Device.Type == "" {
+		cfg.Device.Type = "auto"
+	}
+	if cfg.Device.BaudRate == 0 {
+		cfg.Device.BaudRate = 9600
+	}
 	if cfg.Device.VendorID == 0 {
 		cfg.Device.VendorID = 0x0c4a
 	}
@@ -89,6 +105,7 @@ func defaults(cfg *Config) {
 // DefaultConfig returns a Config populated entirely with default values.
 // Required fields (server.ws_url, server.bridge_token, server.posten_id)
 // are left empty; callers must fill them before use.
+// Device.Type defaults to "auto"; Device.BaudRate defaults to 9600.
 func DefaultConfig() *Config {
 	cfg := &Config{}
 	defaults(cfg)

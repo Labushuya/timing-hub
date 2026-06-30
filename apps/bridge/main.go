@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/timing-hub/timy-bridge/config"
+	"github.com/timing-hub/timy-bridge/device"
 	bridgehttp "github.com/timing-hub/timy-bridge/http"
 	"github.com/timing-hub/timy-bridge/tray"
 	"github.com/timing-hub/timy-bridge/usb"
@@ -64,16 +67,37 @@ func main() {
 	}
 
 	log.WithFields(logrus.Fields{
-		"config":  *configPath,
-		"version": Version,
-		"dev":     *dev,
-	}).Info("timy-bridge starting")
+		"config":      *configPath,
+		"version":     Version,
+		"dev":         *dev,
+		"device_type": cfg.Device.Type,
+	}).Info("universal-timing-bridge starting")
 
 	// Shared state.
 	s := &state{}
 	s.httpState.Version = Version
 
-	// Buffered event bus: USB monitor writes, WS client reads.
+	// Build the device driver from config.
+	drv, err := device.NewDriver(
+		device.DeviceType(cfg.Device.Type),
+		cfg.Device.VendorID,
+		cfg.Device.ProductID,
+		device.SerialConfig{
+			Port:     cfg.Device.SerialPort,
+			BaudRate: cfg.Device.BaudRate,
+		},
+	)
+	if err != nil {
+		log.WithError(err).Fatal("failed to create device driver")
+	}
+
+	log.WithField("driver", drv.Name()).Info("device driver selected")
+
+	// impulse bus: device driver writes device.Impulse; the adapter goroutine
+	// converts to usb.TimyEvent for the WS client.
+	impulseBus := make(chan device.Impulse, 512)
+
+	// eventBus carries the WS-client-facing events (usb.TimyEvent).
 	eventBus := make(chan usb.TimyEvent, 512)
 
 	// WS client.
@@ -85,13 +109,6 @@ func main() {
 		ReconnectIntervalS: cfg.Reliability.ReconnectIntervalS,
 		LocalBufferPath:    cfg.Reliability.LocalBufferPath,
 		MaxBufferEntries:   cfg.Reliability.MaxBufferEntries,
-	}, log, &s.httpState)
-
-	// USB monitor.
-	usbMonitor := usb.NewMonitor(usb.Config{
-		VendorID:   cfg.Device.VendorID,
-		ProductID:  cfg.Device.ProductID,
-		AutoDetect: cfg.Device.AutoDetect,
 	}, log, &s.httpState)
 
 	// HTTP status server.
@@ -108,50 +125,70 @@ func main() {
 		trayApp.SetReconnectFunc(wsClient.TriggerReconnect)
 
 		// Start bridge components before entering the systray event loop.
-		startComponents(log, usbMonitor, wsClient, httpServer, eventBus)
+		ctx, cancel := context.WithCancel(context.Background())
+		startComponents(ctx, log, drv, wsClient, httpServer, impulseBus, eventBus, &s.httpState)
 
-		// Watch for OS signal in a goroutine; tray Quit button is handled
-		// internally by TrayApp itself.
 		go func() {
 			<-quit
 			log.Info("received shutdown signal")
-			shutdown(log, usbMonitor, wsClient, httpServer, trayApp)
+			cancel()
+			shutdownComponents(log, wsClient, httpServer, trayApp)
 		}()
 
-		// Run blocks until the user quits via tray or Stop() is called.
 		trayApp.Run(func() {
-			shutdown(log, usbMonitor, wsClient, httpServer, nil)
+			cancel()
+			shutdownComponents(log, wsClient, httpServer, nil)
 		})
 	} else {
-		startComponents(log, usbMonitor, wsClient, httpServer, eventBus)
+		ctx, cancel := context.WithCancel(context.Background())
+		startComponents(ctx, log, drv, wsClient, httpServer, impulseBus, eventBus, &s.httpState)
 		<-quit
-		shutdown(log, usbMonitor, wsClient, httpServer, nil)
+		cancel()
+		shutdownComponents(log, wsClient, httpServer, nil)
 	}
 }
 
-// startComponents launches the three background goroutines.
+// startComponents launches all background goroutines.
 func startComponents(
+	ctx context.Context,
 	log *logrus.Logger,
-	usbMonitor *usb.Monitor,
+	drv device.Driver,
 	wsClient *ws.BridgeClient,
 	httpServer *bridgehttp.Server,
+	impulseBus chan device.Impulse,
 	eventBus chan usb.TimyEvent,
+	httpState *bridgehttp.State,
 ) {
-	// 1. USB monitor loop: opens device, reads impulses, reconnects on disconnect.
+	// 1. Device driver loop: opens device, reads impulses, reconnects on disconnect.
 	go func() {
-		if err := usbMonitor.Run(eventBus); err != nil {
-			log.WithError(err).Error("usb monitor stopped with error")
+		if err := runDeviceLoop(ctx, log, drv, impulseBus, httpState); err != nil {
+			log.WithError(err).Error("device driver stopped with error")
 		}
 	}()
 
-	// 2. WS client: buffers to SQLite, forwards over WS, reconnects on disconnect.
+	// 2. Adapter goroutine: converts device.Impulse → usb.TimyEvent.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case imp, ok := <-impulseBus:
+				if !ok {
+					return
+				}
+				eventBus <- impulseToTimyEvent(imp)
+			}
+		}
+	}()
+
+	// 3. WS client: buffers to SQLite, forwards over WS, reconnects on disconnect.
 	go func() {
 		if err := wsClient.Run(eventBus); err != nil {
 			log.WithError(err).Error("ws client stopped with error")
 		}
 	}()
 
-	// 3. HTTP status server on localhost.
+	// 4. HTTP status server on localhost.
 	go func() {
 		if err := httpServer.Start(); err != nil {
 			log.WithError(err).Error("http server stopped with error")
@@ -159,18 +196,81 @@ func startComponents(
 	}()
 }
 
-// shutdown stops all components in order and waits briefly for clean exit.
-func shutdown(
+// runDeviceLoop opens the driver and reads impulses, reconnecting on
+// disconnect until ctx is cancelled.
+func runDeviceLoop(
+	ctx context.Context,
 	log *logrus.Logger,
-	usbMonitor *usb.Monitor,
+	drv device.Driver,
+	impulseBus chan<- device.Impulse,
+	httpState *bridgehttp.State,
+) error {
+	const reconnectDelay = 3 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		if err := drv.Open(); err != nil {
+			log.WithFields(logrus.Fields{
+				"driver": drv.Name(),
+				"error":  err,
+			}).Warn("device open failed, retrying")
+			atomic.StoreInt32(&httpState.DeviceConnectedFlag, 0)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(reconnectDelay):
+			}
+			continue
+		}
+
+		log.WithField("driver", drv.Name()).Info("device opened")
+		atomic.StoreInt32(&httpState.DeviceConnectedFlag, 1)
+
+		err := drv.ReadLoop(ctx, impulseBus)
+		_ = drv.Close()
+		atomic.StoreInt32(&httpState.DeviceConnectedFlag, 0)
+
+		if ctx.Err() != nil {
+			return nil
+		}
+		log.WithFields(logrus.Fields{
+			"driver": drv.Name(),
+			"error":  err,
+		}).Warn("device session ended, reconnecting")
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(reconnectDelay):
+		}
+	}
+}
+
+// impulseToTimyEvent converts a device.Impulse to the usb.TimyEvent that the
+// WS client and HTTP status endpoint consume.
+func impulseToTimyEvent(imp device.Impulse) usb.TimyEvent {
+	return usb.TimyEvent{
+		Seq:         imp.RunningNum,
+		Channel:     imp.Channel,
+		TimestampMs: imp.EpochMs,
+		Raw:         imp.RawLine,
+	}
+}
+
+// shutdownComponents stops all components in order and waits briefly for a
+// clean exit.
+func shutdownComponents(
+	log *logrus.Logger,
 	wsClient *ws.BridgeClient,
 	httpServer *bridgehttp.Server,
 	trayApp *tray.TrayApp,
 ) {
 	log.Info("shutting down")
-
-	// Stop USB read loop first so no new impulses are queued.
-	usbMonitor.Stop()
 
 	// Drain and close WS client (flushes pending ACKs, closes SQLite buffer).
 	wsClient.Stop()

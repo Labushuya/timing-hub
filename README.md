@@ -66,7 +66,9 @@ api.timinghub.de      (Railway — Fastify 5 + Node.js)
     └── Worker         (Railway — scoring recompute)
 
 At the event venue:
-  [ALGE Timy 3] ──USB──► [timy-bridge] ──WSS──► API
+  [ALGE Timy 3]        ──USB──────► [timing-bridge] ──WSS──► API
+  [TAG Heuer CP-Serie] ──RS-232──► [timing-bridge] ──WSS──► API
+  [Trentmann RallyStar]──RS-232──► [timing-bridge] ──WSS──► API
 ```
 
 ### Monorepo structure
@@ -99,10 +101,12 @@ timing-hub/
 
 The only non-browser component. A single executable (~14 MB, no installer) that:
 
-1. Auto-detects an ALGE Timy 3 (VID `0x0c4a`, PID `0x0889`) on USB
+1. Connects to ALGE Timy 3 via USB, or TAG Heuer CP / Trentmann RallyStar via RS-232/USB-Serial
 2. Streams timing impulses to the cloud via WebSocket
 3. Buffers locally (SQLite WAL) when offline — resumes on reconnect
 4. Shows a tray icon (green = connected, red = device missing)
+
+See [`apps/bridge/BRIDGE.md`](apps/bridge/BRIDGE.md) for device configuration, COM port detection, and troubleshooting.
 
 **Download from [Releases](https://github.com/Labushuya/timing-hub/releases):**
 - `timy-bridge-windows-amd64.exe`
@@ -205,9 +209,8 @@ Required secrets in Railway/Vercel:
 - [x] Phase 5 — E2E tests, security hardening, monitoring, production config
 - [x] Self-hosting — Raspberry Pi 5 setup with DuckDNS + Nginx + Docker Compose
 - [x] Domain-knowledge corrections — correct GLP scoring (absolute timestamps → section deltas)
-- [ ] TAG Heuer CP-Serie — Bridge support for CP 450 / 500 / 520 / 525 / 540 (RS-232/USB-serial)
-- [ ] Trentmann RallyStar — Bridge support (serial protocol)
-- [ ] ALGE MT (Mobile Timing) — Evaluation: network-based integration, differs from USB/serial bridge
+- [x] TAG Heuer CP-Serie — Bridge support for CP 450 / 500 / 520 / 525 / 540 (RS-232/USB-serial)
+- [x] Trentmann RallyStar — Bridge support (serial protocol)
 - [ ] Klassen-Modi — configurable class definition criteria (Baujahr, Hubraum, Kategorie, kombiniert)
 - [ ] Monetarisierung — Stripe-Integration für Event-Token / Veranstalter-Abonnement
 
@@ -218,10 +221,9 @@ Required secrets in Railway/Vercel:
 | Gerät | Verbindung | Status |
 |---|---|---|
 | **ALGE Timy 3** | USB (VID 0x0c4a / PID 0x0889) | ✅ Unterstützt |
-| **TAG Heuer CP 450 / 500 / 520 / 525 / 540** | RS-232 / USB-Serial | 🗓 Geplant |
-| **Trentmann RallyStar** | RS-232 / USB-Serial | 🗓 Geplant |
-| **ALGE MT (Mobile Timing)** | Netzwerk / WLAN | 🔍 Evaluierung |
-| **Manuell** | Tastatureingabe im Browser | ✅ Immer verfügbar |
+| **TAG Heuer CP 450 / 500 / 520 / 525 / 540** | RS-232 / USB-Serial | ✅ Unterstützt |
+| **Trentmann RallyStar** | RS-232 / USB-Serial | ✅ Unterstützt |
+| **Manuelle Eingabe** | Browser | ✅ Immer verfügbar |
 | **CSV / Excel Import** | Datei-Upload | ✅ Immer verfügbar |
 
 ---

@@ -4,9 +4,49 @@ bridge_token = "REPLACE_WITH_BRIDGE_TOKEN_FROM_UI"
 posten_id = "REPLACE_WITH_POSTEN_UUID"
 
 [device]
+# Device type: "alge_timy" | "tag_heuer_cp" | "trentmann_rallystar" | "auto"
+# "auto" tries USB (ALGE Timy) first, then serial detection
+type = "auto"
+
+# For ALGE Timy 3 (USB):
 vendor_id = 0x0c4a
 product_id = 0x0889
-auto_detect = true
+
+# For TAG Heuer CP or Trentmann RallyStar (RS-232/USB-Serial):
+# serial_port = "COM3"          # Windows: COM3, COM4 etc.
+# serial_port = "/dev/ttyUSB0"  # Linux/Mac
+# baud_rate = 9600
+# data_bits = 8
+# stop_bits = 1
+# parity = "none"
+
+# ---------------------------------------------------------------------------
+# Example configs per device type:
+#
+# --- ALGE Timy 3 (USB, automatic detection) ---
+# [device]
+# type = "alge_timy"
+# vendor_id = 0x0c4a
+# product_id = 0x0889
+#
+# --- TAG Heuer CP 450 / 500 / 520 / 525 / 540 (RS-232 / USB-Serial) ---
+# [device]
+# type = "tag_heuer_cp"
+# serial_port = "COM3"     # Windows example; use /dev/ttyUSB0 on Linux/Mac
+# baud_rate = 9600
+# data_bits = 8
+# stop_bits = 1
+# parity = "none"
+#
+# --- Trentmann RallyStar (RS-232 / USB-Serial) ---
+# [device]
+# type = "trentmann_rallystar"
+# serial_port = "COM4"     # Windows example; use /dev/ttyUSB0 on Linux/Mac
+# baud_rate = 9600
+# data_bits = 8
+# stop_bits = 1
+# parity = "none"
+# ---------------------------------------------------------------------------
 
 [reliability]
 reconnect_interval_s = 5
