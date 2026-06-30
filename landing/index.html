@@ -28,6 +28,9 @@
       --radius:       8px;
       --radius-lg:    12px;
       --font:         -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      /* CHANGE 5: alias for readability */
+      --color-primary:      #e63012;
+      --color-text-muted:   #888888;
     }
 
     /* RESET & BASE */
@@ -37,16 +40,18 @@
       padding: 0;
     }
 
+    /* CHANGE 5: smooth scroll */
     html {
       scroll-behavior: smooth;
       font-size: 16px;
     }
 
+    /* CHANGE 5: line-height 1.7 */
     body {
       background-color: var(--bg);
       color: var(--text);
       font-family: var(--font);
-      line-height: 1.6;
+      line-height: 1.7;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
@@ -96,6 +101,18 @@
     @keyframes fade-in-up {
       from { opacity: 0; transform: translateY(20px); }
       to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* CHANGE 1: scroll indicator bounce */
+    @keyframes bounce-down {
+      0%, 100% { transform: translateY(0); opacity: 0.7; }
+      50%       { transform: translateY(8px); opacity: 1; }
+    }
+
+    /* CHANGE 5: status banner pulsing glow */
+    @keyframes banner-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(230,48,18,0); }
+      50%       { box-shadow: 0 0 18px 4px rgba(230,48,18,0.18); }
     }
 
     /* LAYOUT */
@@ -194,9 +211,10 @@
       animation: gradient-slide 3s ease infinite;
     }
 
+    /* CHANGE 5: increased tagline contrast */
     .hero-tagline {
       font-size: clamp(1.05rem, 3vw, 1.35rem);
-      color: var(--text-muted);
+      color: #c8c8c8;
       font-weight: 400;
       margin-top: 24px;
       margin-bottom: 8px;
@@ -221,6 +239,15 @@
       gap: 12px;
       flex-wrap: wrap;
       justify-content: center;
+    }
+
+    /* CHANGE 4: note below CTA buttons */
+    .cta-note {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      margin-top: 0.5rem;
+      width: 100%;
+      text-align: center;
     }
 
     /* Primary button */
@@ -298,15 +325,62 @@
       background: rgba(230,48,18,0.06);
     }
 
+    /* CHANGE 5: mobile full-width buttons */
+    @media (max-width: 480px) {
+      .cta-group {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .btn-primary,
+      .btn-secondary {
+        justify-content: center;
+        width: 100%;
+      }
+    }
+
+    /* CHANGE 1: scroll indicator */
+    .scroll-hint {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      pointer-events: none;
+    }
+
+    .scroll-hint-text {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .scroll-hint-arrow {
+      animation: bounce-down 1.8s ease-in-out infinite;
+      color: var(--text-dim);
+      line-height: 1;
+    }
+
+    .scroll-hint-arrow svg {
+      width: 20px;
+      height: 20px;
+      display: block;
+    }
+
     /* STATUS BANNER */
+    /* CHANGE 5: pulsing glow */
     .status-banner {
       background: rgba(230,48,18,0.07);
-      border-top: 1px solid rgba(230,48,18,0.15);
-      border-bottom: 1px solid rgba(230,48,18,0.15);
+      border-top: 1px solid rgba(230,48,18,0.25);
+      border-bottom: 1px solid rgba(230,48,18,0.25);
       padding: 14px 20px;
       text-align: center;
       font-size: 0.875rem;
       color: var(--text-muted);
+      animation: banner-glow 3s ease-in-out infinite;
     }
 
     .status-banner .inner {
@@ -351,16 +425,19 @@
       }
     }
 
+    /* CHANGE 5: left border accent on hover */
     .feature-card {
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: 28px 24px;
-      transition: border-color 0.25s ease, transform 0.2s ease, box-shadow 0.25s ease;
+      transition: border-color 0.25s ease, transform 0.2s ease, box-shadow 0.25s ease, border-left-color 0.25s ease, border-left-width 0.15s ease;
+      border-left: 3px solid transparent;
     }
 
     .feature-card:hover {
       border-color: var(--border-hover);
+      border-left: 3px solid var(--color-primary);
       transform: translateY(-2px);
       box-shadow: 0 8px 32px rgba(230,48,18,0.12);
     }
@@ -382,6 +459,22 @@
       font-size: 0.875rem;
       color: var(--text-muted);
       line-height: 1.65;
+    }
+
+    /* CHANGE 3: hardware list in card */
+    .feature-desc ul {
+      list-style: none;
+      padding: 0;
+      margin: 8px 0 0 0;
+    }
+
+    .feature-desc ul li {
+      padding: 2px 0;
+    }
+
+    .feature-desc ul li::before {
+      content: "• ";
+      color: var(--accent);
     }
 
     /* HOW IT WORKS */
@@ -438,13 +531,14 @@
       }
     }
 
+    /* CHANGE 6: step icon replaces numbered circle */
     .step-number {
       width: 40px;
       height: 40px;
       border-radius: 50%;
       background: var(--accent);
       color: #fff;
-      font-size: 0.9rem;
+      font-size: 1.2rem;
       font-weight: 800;
       display: flex;
       align-items: center;
@@ -582,12 +676,24 @@
     </p>
 
     <div class="cta-group">
-      <a href="https://timinghub.de/login" class="btn-primary">
+      <a href="https://timinghub.de/login" class="btn-primary" aria-label="Zur Timing Hub App">
         Zur App &rarr;
       </a>
-      <a href="#results" class="btn-secondary">
+      <a href="#results" class="btn-secondary" aria-label="Veranstaltungsergebnisse ansehen">
         Ergebnisse
       </a>
+    </div>
+    <!-- CHANGE 4: availability note -->
+    <p class="cta-note">* Verfügbar nach Inbetriebnahme</p>
+
+    <!-- CHANGE 1: scroll indicator -->
+    <div class="scroll-hint" aria-hidden="true">
+      <span class="scroll-hint-text">Mehr entdecken</span>
+      <span class="scroll-hint-arrow">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
     </div>
   </header>
 
@@ -624,21 +730,29 @@
           </p>
         </div>
 
+        <!-- CHANGE 2: rephrased "Installationslos" card -->
         <div class="feature-card animate-in">
           <span class="feature-icon">📱</span>
-          <h3 class="feature-title">Installationslos</h3>
+          <h3 class="feature-title">Sofort einsatzbereit</h3>
           <p class="feature-desc">
-            Zeitnehmer öffnen einfach den Link auf ihrem Handy. Keine App, kein
-            Login — nur die URL.
+            Zeitnehmer erhalten einen QR-Code oder Link — fertig. Kein App-Store,
+            keine Konto-Erstellung, keine Installation. Einfach öffnen und loslegen.
           </p>
         </div>
 
+        <!-- CHANGE 3: expanded hardware integration card -->
         <div class="feature-card animate-in">
           <span class="feature-icon">🔌</span>
-          <h3 class="feature-title">Timy-Integration</h3>
+          <h3 class="feature-title">Hardware-Integration</h3>
           <p class="feature-desc">
-            ALGE Timy&nbsp;3 per USB anschließen — Zeiten fließen automatisch.
-            Manuell-Eingabe immer als Fallback.
+            Direkte Anbindung per USB oder seriell:
+            <ul>
+              <li>ALGE Timy 3 (Lichtschranke + manuell)</li>
+              <li>TAG Heuer CP 450 / 500 / 520 / 525 / 540</li>
+              <li>Trentmann RallyStar</li>
+              <li>ALGE MT (Mobile Timing Netzwerk) — geplant</li>
+            </ul>
+            Manuelle Eingabe und CSV-Import immer als Fallback verfügbar.
           </p>
         </div>
 
@@ -684,11 +798,12 @@
         </p>
       </div>
 
+      <!-- CHANGE 6: Unicode icons replace numbered circles -->
       <div class="steps">
         <div class="step">
-          <div class="step-number">1</div>
+          <div class="step-number" aria-hidden="true">⚙️</div>
           <div class="step-content">
-            <h3 class="step-title">Veranstaltung anlegen</h3>
+            <h3 class="step-title">Veranstaltung konfigurieren</h3>
             <p class="step-desc">
               Teilnehmer, Posten und Sollzeiten konfigurieren.
             </p>
@@ -696,7 +811,7 @@
         </div>
 
         <div class="step">
-          <div class="step-number">2</div>
+          <div class="step-number" aria-hidden="true">📲</div>
           <div class="step-content">
             <h3 class="step-title">QR-Codes verteilen</h3>
             <p class="step-desc">
@@ -706,7 +821,7 @@
         </div>
 
         <div class="step">
-          <div class="step-number">3</div>
+          <div class="step-number" aria-hidden="true">⏱</div>
           <div class="step-content">
             <h3 class="step-title">Live messen</h3>
             <p class="step-desc">
@@ -716,7 +831,7 @@
         </div>
 
         <div class="step">
-          <div class="step-number">4</div>
+          <div class="step-number" aria-hidden="true">📄</div>
           <div class="step-content">
             <h3 class="step-title">Ergebnis exportieren</h3>
             <p class="step-desc">

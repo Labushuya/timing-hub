@@ -200,15 +200,33 @@ Required secrets in Railway/Vercel:
 - [x] Phase 0 — Monorepo foundation, shared types, scoring engine
 - [x] Phase 1 — Auth, admin token system, event/participant/posten CRUD
 - [x] Phase 2 — WebSocket hub, live timing, scoring integration, dashboards
-- [x] Phase 3 — Timy Bridge Go binary (USB protocol, cross-platform release)
+- [x] Phase 3 — Timy Bridge Go binary (ALGE Timy 3, USB protocol, cross-platform release)
 - [x] Phase 4 — PWA service worker, i18n (DE/EN), PDF export, bundle optimization
 - [x] Phase 5 — E2E tests, security hardening, monitoring, production config
 - [x] Self-hosting — Raspberry Pi 5 setup with DuckDNS + Nginx + Docker Compose
 - [x] Domain-knowledge corrections — correct GLP scoring (absolute timestamps → section deltas)
+- [ ] TAG Heuer CP-Serie — Bridge support for CP 450 / 500 / 520 / 525 / 540 (RS-232/USB-serial)
+- [ ] Trentmann RallyStar — Bridge support (serial protocol)
+- [ ] ALGE MT (Mobile Timing) — Evaluation: network-based integration, differs from USB/serial bridge
+- [ ] Klassen-Modi — configurable class definition criteria (Baujahr, Hubraum, Kategorie, kombiniert)
+- [ ] Monetarisierung — Stripe-Integration für Event-Token / Veranstalter-Abonnement
 
 ---
 
-## Supported Event Formats
+## Supported Hardware
+
+| Gerät | Verbindung | Status |
+|---|---|---|
+| **ALGE Timy 3** | USB (VID 0x0c4a / PID 0x0889) | ✅ Unterstützt |
+| **TAG Heuer CP 450 / 500 / 520 / 525 / 540** | RS-232 / USB-Serial | 🗓 Geplant |
+| **Trentmann RallyStar** | RS-232 / USB-Serial | 🗓 Geplant |
+| **ALGE MT (Mobile Timing)** | Netzwerk / WLAN | 🔍 Evaluierung |
+| **Manuell** | Tastatureingabe im Browser | ✅ Immer verfügbar |
+| **CSV / Excel Import** | Datei-Upload | ✅ Immer verfügbar |
+
+---
+
+
 
 | Format | Scoring logic |
 |---|---|
