@@ -13,8 +13,14 @@
   interface PostenSession {
     posten_id: string;
     posten_name: string;
+    posten_code: string;
+    posten_role: 'start' | 'finish' | 'intermediate' | 'sector_split';
+    prev_posten_code?: string;
     event_slug: string;
     event_name: string;
+    event_info: {
+      run_count: number;
+    };
     mode: 'manual' | 'timy';
     timy_port?: string;
   }
@@ -47,6 +53,28 @@
   let timyPollInterval: ReturnType<typeof setInterval> | null = null;
   let stamping = $state(false);
 
+  // ---- Laufnummer (run/lap selection) ----------------------------------------
+
+  const STORAGE_KEY_LAP = $derived(`zt-lap-${postenToken}`);
+
+  function loadSavedLap(): number {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY_LAP);
+      if (saved) return parseInt(saved, 10) || 1;
+    } catch { /* ignore */ }
+    return 1;
+  }
+
+  let currentLap = $state(1);
+
+  function selectLap(lap: number) {
+    currentLap = lap;
+    try { sessionStorage.setItem(STORAGE_KEY_LAP, String(lap)); } catch { /* ignore */ }
+  }
+
+  const runCount = $derived(session?.event_info?.run_count ?? 1);
+  const showLapSelector = $derived(runCount > 1);
+
   const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
   const wsStatus = $derived(wsStore.status);
@@ -69,6 +97,8 @@
         throw new Error(body.message ?? `HTTP ${res.status}`);
       }
       session = await res.json();
+      // Restore lap selection from sessionStorage
+      currentLap = loadSavedLap();
     } catch (err) {
       sessionError = err instanceof Error ? err.message : 'Failed to start session';
     } finally {
@@ -137,7 +167,8 @@
         event_slug: session.event_slug,
         startnummer,
         raw_time_ms: rawTimeMs,
-        client_ts: now.toISOString()
+        client_ts: now.toISOString(),
+        lap_number: currentLap
       });
     }
 
@@ -150,7 +181,8 @@
         event_slug: session.event_slug,
         startnummer,
         raw_time_ms: rawTimeMs,
-        client_ts: now.toISOString()
+        client_ts: now.toISOString(),
+        lap_number: currentLap
       });
     }
 
@@ -246,6 +278,28 @@
     return 'red';
   });
 
+  // ---- Posten role info -------------------------------------------------------
+
+  const postenRoleInfo = $derived((): string | null => {
+    if (!session) return null;
+    switch (session.posten_role) {
+      case 'start':
+        return 'Startposten — erfasst Startzeit';
+      case 'finish':
+        return 'Zielposten — erfasst Zielzeit';
+      case 'intermediate': {
+        const prev = session.prev_posten_code;
+        return prev
+          ? `Zwischenzeit — Abschnitt ${prev} → ${session.posten_code}`
+          : 'Zwischenzeit';
+      }
+      case 'sector_split':
+        return 'Sektorwechsel';
+      default:
+        return null;
+    }
+  });
+
   // ---- Lifecycle -------------------------------------------------------------
 
   onMount(() => {
@@ -293,6 +347,9 @@
         <div class="session-info">
           <span class="posten-name">{session.posten_name}</span>
           <span class="event-name-small">{session.event_name}</span>
+          {#if postenRoleInfo()}
+            <span class="posten-role-info">{postenRoleInfo()}</span>
+          {/if}
         </div>
       {:else if sessionError}
         <span class="error-text">{sessionError}</span>
@@ -325,6 +382,28 @@
       </div>
 
     {:else if session}
+      <!-- Laufnummer-Auswahl (nur wenn run_count > 1) -->
+      {#if showLapSelector}
+        <div class="lap-selector" role="group" aria-label="Lauf auswählen">
+          <span class="lap-selector-label">Lauf:</span>
+          <div class="lap-buttons">
+            {#each { length: runCount } as _, i}
+              {@const lap = i + 1}
+              <button
+                type="button"
+                class="lap-btn"
+                class:active={currentLap === lap}
+                onclick={() => selectLap(lap)}
+                aria-pressed={currentLap === lap}
+                aria-label="Lauf {lap}"
+              >
+                {lap}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
       <!-- Stamp button — centered, dominant -->
       <div class="stamp-area">
         <StampButton
@@ -424,6 +503,13 @@
   .event-name-small {
     font-size: 0.75rem;
     color: var(--color-text-muted);
+  }
+
+  .posten-role-info {
+    font-size: 0.6875rem;
+    color: var(--color-text-subtle, var(--color-text-muted));
+    font-style: italic;
+    margin-top: 0.1rem;
   }
 
   .header-right {
@@ -532,6 +618,53 @@
     flex-direction: column;
     align-items: center;
     gap: 0.75rem;
+  }
+
+  /* Lap selector */
+  .lap-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .lap-selector-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
+  .lap-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .lap-btn {
+    min-width: 3rem;
+    padding: 0.5rem 0.875rem;
+    font-size: 1rem;
+    font-weight: 700;
+    border: 2px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2, var(--color-bg));
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all 150ms;
+    font-family: inherit;
+    min-height: 48px;
+  }
+
+  .lap-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--color-text);
+  }
+
+  .lap-btn.active {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: white;
   }
 
   .timy-hint {

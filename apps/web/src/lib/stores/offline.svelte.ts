@@ -17,6 +17,7 @@ export interface OfflineEntry {
   startnummer: number | null;
   raw_time_ms: number;
   client_ts: string; // ISO 8601
+  lap_number?: number | undefined;
 }
 
 // ---- Constants --------------------------------------------------------------

@@ -1,4 +1,11 @@
-export type { ScoringInput, ScoringResult, RankedResult } from './types.js';
+export type {
+  ScoringInput,
+  ScoringResult,
+  RankedResult,
+  ExtendedScoringInput,
+  PostenWithOrder,
+  SectionTarget,
+} from './types.js';
 export { computeGLP } from './glp.js';
 export { computeSonderprüfung } from './sonderpruefung.js';
 export { computeRundstrecke } from './rundstrecke.js';

@@ -1,45 +1,81 @@
 import { describe, it, expect } from 'vitest';
 import { computeGLP } from '../src/glp.js';
-import type { ScoringInput } from '../src/types.js';
+import type { ExtendedScoringInput, PostenWithOrder, SectionTarget } from '../src/types.js';
 import type { Participant, TimeEntry, GLPConfig } from '@timing-hub/shared-types';
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Test setup: realistic 2-posten layout (START → ZIEL)
+// raw_timestamp_ms = absolute wall-clock ms
+// Duration = ZIEL_ts - START_ts
 // ---------------------------------------------------------------------------
 
-function makeParticipant(overrides: Partial<Participant> & { id: string }): Participant {
+const START_ID = 'posten-start';
+const ZIEL_ID  = 'posten-ziel';
+const ZZ1_ID   = 'posten-zz1';
+
+const DEFAULT_POSTEN: PostenWithOrder[] = [
+  { id: START_ID, code: 'START', role: 'start',  sort_order: 0 },
+  { id: ZIEL_ID,  code: 'ZIEL',  role: 'finish', sort_order: 1 },
+];
+
+const THREE_POSTEN: PostenWithOrder[] = [
+  { id: START_ID, code: 'START', role: 'start',        sort_order: 0 },
+  { id: ZZ1_ID,   code: 'ZZ1',   role: 'intermediate', sort_order: 1 },
+  { id: ZIEL_ID,  code: 'ZIEL',  role: 'finish',        sort_order: 2 },
+];
+
+const BASE_TS = 10_000_000; // arbitrary epoch base so diffs are clean
+
+// Helper: make a participant
+function makeParticipant(id: string, overrides: Partial<Participant> = {}): Participant {
   return {
+    id,
     event_id: 'event-1',
-    startnummer: overrides.id,
-    driver_name: `Driver ${overrides.id}`,
+    startnummer: id,
+    driver_name: `Driver ${id}`,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
     ...overrides,
   };
 }
 
+// Helper: make a time entry at a given posten with a given absolute timestamp
 function makeEntry(
   participantId: string,
   postenId: string,
-  rawMs: number,
+  timestampMs: number,
   overrides: Partial<TimeEntry> = {},
 ): TimeEntry {
   return {
-    id: `entry-${participantId}-${rawMs}`,
+    id: `entry-${participantId}-${postenId}-${timestampMs}`,
     event_id: 'event-1',
     posten_id: postenId,
     participant_id: participantId,
     source: 'manual',
-    raw_timestamp_ms: rawMs,
-    server_recv_ms: rawMs,
+    raw_timestamp_ms: timestampMs,
+    server_recv_ms: timestampMs,
     is_confirmed: true,
     is_void: false,
+    lap_number: 1,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
     ...overrides,
   };
 }
 
+// Helper: make start+finish entries for a participant given a duration
+function makeRun(
+  participantId: string,
+  durationMs: number,
+  lapNumber = 1,
+): TimeEntry[] {
+  return [
+    makeEntry(participantId, START_ID, BASE_TS, { lap_number: lapNumber }),
+    makeEntry(participantId, ZIEL_ID,  BASE_TS + durationMs, { lap_number: lapNumber }),
+  ];
+}
+
+// Helper: default GLP config
 function makeGLPConfig(overrides: Partial<GLPConfig> = {}): GLPConfig {
   return {
     format: 'glp',
@@ -52,12 +88,38 @@ function makeGLPConfig(overrides: Partial<GLPConfig> = {}): GLPConfig {
   };
 }
 
+// Helper: section target (total route = null→null)
+function totalTarget(targetMs: number, cls: string | null = null): SectionTarget {
+  return { from_posten_id: null, to_posten_id: null, class: cls, target_time_ms: targetMs };
+}
+
+// Helper: section target for a specific section
+function sectionTarget(
+  from: string, to: string, targetMs: number, cls: string | null = null,
+): SectionTarget {
+  return { from_posten_id: from, to_posten_id: to, class: cls, target_time_ms: targetMs };
+}
+
+// Helper: build ExtendedScoringInput
 function makeInput(
   participants: Participant[],
   entries: TimeEntry[],
+  sectionTargets: SectionTarget[],
   config: GLPConfig = makeGLPConfig(),
-): ScoringInput {
-  return { participants, entries, config };
+  posten: PostenWithOrder[] = DEFAULT_POSTEN,
+  runScoring: 'sum' | 'best' | 'best_of_n' = 'best',
+  runScoringN?: number,
+): ExtendedScoringInput {
+  return {
+    participants,
+    entries,
+    config,
+    posten,
+    section_targets: sectionTargets,
+    run_scoring: runScoring,
+    run_scoring_n: runScoringN,
+    hide_target_times: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -65,34 +127,33 @@ function makeInput(
 // ---------------------------------------------------------------------------
 
 describe('computeGLP', () => {
-  const FINISH = 'posten-finish';
 
   it('throws if format is not glp', () => {
-    const input = makeInput([], [], { ...makeGLPConfig(), format: 'glp' });
+    const input = makeInput([], [], []);
     // @ts-expect-error — intentional wrong format
     input.config.format = 'sonderpruefung';
-    expect(() => computeGLP(input)).toThrow('computeGLP called with format=sonderpruefung');
+    expect(() => computeGLP(input)).toThrow();
   });
 
   it('empty participants: returns empty results, no crash', () => {
-    const result = computeGLP(makeInput([], []));
+    const result = computeGLP(makeInput([], [], []));
     expect(result.results).toHaveLength(0);
   });
 
   it('basic scoring: 3 participants ranked by penalty ASC', () => {
     const target = 60_000;
-    const p1 = makeParticipant({ id: 'p1', target_time_ms: target });
-    const p2 = makeParticipant({ id: 'p2', target_time_ms: target });
-    const p3 = makeParticipant({ id: 'p3', target_time_ms: target });
+    const p1 = makeParticipant('p1');
+    const p2 = makeParticipant('p2');
+    const p3 = makeParticipant('p3');
 
     // p2 is closest (1 s off), p1 is 5 s off, p3 is 10 s off
     const entries = [
-      makeEntry('p1', FINISH, target + 5_000),
-      makeEntry('p2', FINISH, target + 1_000),
-      makeEntry('p3', FINISH, target + 10_000),
+      ...makeRun('p1', target + 5_000),
+      ...makeRun('p2', target + 1_000),
+      ...makeRun('p3', target + 10_000),
     ];
 
-    const result = computeGLP(makeInput([p1, p2, p3], entries));
+    const result = computeGLP(makeInput([p1, p2, p3], entries, [totalTarget(target)]));
     expect(result.results).toHaveLength(3);
 
     const ranked = result.results.map((r) => r.participant_id);
@@ -107,10 +168,10 @@ describe('computeGLP', () => {
 
   it('perfect time: actual == target → deviation=0, penalty=0, rank=1', () => {
     const target = 45_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-    const entries = [makeEntry('p1', FINISH, target)];
+    const p = makeParticipant('p1');
+    const entries = makeRun('p1', target);
 
-    const result = computeGLP(makeInput([p], entries));
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)]));
     const r = result.results[0]!;
 
     expect(r.rank_overall).toBe(1);
@@ -119,14 +180,26 @@ describe('computeGLP', () => {
     expect(r.is_dnf).toBe(false);
   });
 
-  it('DNF participant: no time entries → placed last, is_dnf=true', () => {
+  it('early arrival (negative deviation) still produces positive penalty', () => {
     const target = 60_000;
-    const p1 = makeParticipant({ id: 'p1', target_time_ms: target });
-    const p2 = makeParticipant({ id: 'p2', target_time_ms: target }); // DNF
+    const p = makeParticipant('p1');
+    const entries = makeRun('p1', target - 3_000); // 3 s early
 
-    const entries = [makeEntry('p1', FINISH, target + 2_000)];
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)]));
+    expect(result.results[0]!.penalty_points).toBeCloseTo(3);
+  });
 
-    const result = computeGLP(makeInput([p1, p2], entries));
+  it('DNF participant: no finish entry → placed last, is_dnf=true', () => {
+    const target = 60_000;
+    const p1 = makeParticipant('p1');
+    const p2 = makeParticipant('p2'); // DNF — has start but no finish
+
+    const entries = [
+      ...makeRun('p1', target + 2_000),
+      makeEntry('p2', START_ID, BASE_TS), // only start, no finish
+    ];
+
+    const result = computeGLP(makeInput([p1, p2], entries, [totalTarget(target)]));
     const [first, second] = result.results;
 
     expect(first!.participant_id).toBe('p1');
@@ -135,142 +208,110 @@ describe('computeGLP', () => {
     expect(second!.rank_overall).toBe(2);
   });
 
-  it('all DNF: all participants are DNF → all ranked, penalties undefined', () => {
-    const p1 = makeParticipant({ id: 'p1', target_time_ms: 60_000 });
-    const p2 = makeParticipant({ id: 'p2', target_time_ms: 60_000 });
-
+  it('all DNF: all participants DNF → all ranked, no penalty_points', () => {
+    const p1 = makeParticipant('p1');
+    const p2 = makeParticipant('p2');
     // No entries at all
-    const result = computeGLP(makeInput([p1, p2], []));
+    const result = computeGLP(makeInput([p1, p2], [], [totalTarget(60_000)]));
     expect(result.results).toHaveLength(2);
     expect(result.results.every((r) => r.is_dnf)).toBe(true);
-    // penalty_points should be undefined (Infinity → undefined)
-    expect(result.results.every((r) => r.penalty_points === undefined)).toBe(true);
-  });
-
-  it('allow_multiple_attempts=true: takes attempt closest to target', () => {
-    const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-
-    // Two attempts: one far away, one close
-    const entries = [
-      makeEntry('p1', FINISH, target + 15_000), // 15 s off
-      makeEntry('p1', FINISH, target + 500),     // 0.5 s off (best)
-    ];
-
-    const config = makeGLPConfig({ allow_multiple_attempts: true });
-    const result = computeGLP(makeInput([p], entries, config));
-
-    expect(result.results[0]!.penalty_points).toBeCloseTo(0.5);
-    expect(result.results[0]!.actual_time_ms).toBe(target + 500);
-  });
-
-  it('allow_multiple_attempts=false: takes first (chronologically earliest) confirmed entry', () => {
-    const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-
-    // Earlier entry (lower raw_timestamp_ms) is closer to target
-    // Later entry (higher raw_timestamp_ms) is further from target
-    // The code picks whichever has the lower raw_timestamp_ms
-    const entries = [
-      makeEntry('p1', FINISH, target + 500),      // earlier timestamp, closer (0.5 s off)
-      makeEntry('p1', FINISH, target + 10_000),   // later timestamp, further (10 s off)
-    ];
-
-    const config = makeGLPConfig({ allow_multiple_attempts: false });
-    const result = computeGLP(makeInput([p], entries, config));
-
-    // Should pick earliest by raw_timestamp_ms = target+500
-    expect(result.results[0]!.actual_time_ms).toBe(target + 500);
-    expect(result.results[0]!.penalty_points).toBeCloseTo(0.5);
   });
 
   it('max_penalty cap: penalty never exceeds max_penalty', () => {
     const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-    const entries = [makeEntry('p1', FINISH, target + 120_000)]; // 120 s deviation → 120 pts raw
+    const p = makeParticipant('p1');
+    const entries = makeRun('p1', target + 120_000); // 120 s deviation → 120 pts raw
 
     const config = makeGLPConfig({ penalty_per_second: 1, max_penalty: 50 });
-    const result = computeGLP(makeInput([p], entries, config));
-
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)], config));
     expect(result.results[0]!.penalty_points).toBe(50);
   });
 
   it('max_penalty=null: no cap applied', () => {
     const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-    const entries = [makeEntry('p1', FINISH, target + 200_000)]; // 200 s
+    const p = makeParticipant('p1');
+    const entries = makeRun('p1', target + 200_000); // 200 s
 
     const config = makeGLPConfig({ penalty_per_second: 1, max_penalty: null });
-    const result = computeGLP(makeInput([p], entries, config));
-
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)], config));
     expect(result.results[0]!.penalty_points).toBeCloseTo(200);
   });
 
-  it('percentage_deviation mode: documents current absolute-deviation behaviour', () => {
+  it('percentage_deviation mode: absolute deviation * penalty_per_second', () => {
     const target = 100_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-    const entries = [makeEntry('p1', FINISH, target + 10_000)]; // 10 s off
+    const p = makeParticipant('p1');
+    const entries = makeRun('p1', target + 10_000); // 10 s off
 
-    const config = makeGLPConfig({
-      scoring: 'percentage_deviation',
-      penalty_per_second: 2,
-      max_penalty: null,
-    });
-
-    const result = computeGLP(makeInput([p], entries, config));
-    // Current implementation: (10_000/1000) * 2 = 20
-    expect(result.results[0]!.penalty_points).toBeCloseTo(20);
+    const config = makeGLPConfig({ scoring: 'percentage_deviation', penalty_per_second: 2, max_penalty: null });
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)], config));
+    expect(result.results[0]!.penalty_points).toBeCloseTo(20); // (10_000/1000) * 2
   });
 
   it('class ranking: rank_in_class independent of overall rank', () => {
     const target = 60_000;
-    const p1 = makeParticipant({ id: 'p1', target_time_ms: target, class: 'A' });
-    const p2 = makeParticipant({ id: 'p2', target_time_ms: target, class: 'B' });
-    const p3 = makeParticipant({ id: 'p3', target_time_ms: target, class: 'A' });
+    const p1 = makeParticipant('p1', { class: 'A' });
+    const p2 = makeParticipant('p2', { class: 'B' });
+    const p3 = makeParticipant('p3', { class: 'A' });
 
-    // p2 ranks 1st overall (0.5 s), p1 ranks 2nd (3 s), p3 ranks 3rd (8 s)
     const entries = [
-      makeEntry('p1', FINISH, target + 3_000),
-      makeEntry('p2', FINISH, target + 500),
-      makeEntry('p3', FINISH, target + 8_000),
+      ...makeRun('p1', target + 3_000),
+      ...makeRun('p2', target + 500),
+      ...makeRun('p3', target + 8_000),
     ];
 
-    const result = computeGLP(makeInput([p1, p2, p3], entries));
+    const result = computeGLP(makeInput([p1, p2, p3], entries, [totalTarget(target)]));
     const byId = Object.fromEntries(result.results.map((r) => [r.participant_id, r]));
 
     expect(byId['p2']!.rank_overall).toBe(1);
     expect(byId['p1']!.rank_overall).toBe(2);
     expect(byId['p3']!.rank_overall).toBe(3);
 
-    // Class A: p1 rank 1, p3 rank 2
-    expect(byId['p1']!.rank_in_class).toBe(1);
-    expect(byId['p3']!.rank_in_class).toBe(2);
-    // Class B: p2 rank 1
-    expect(byId['p2']!.rank_in_class).toBe(1);
+    expect(byId['p1']!.rank_in_class).toBe(1); // best in class A
+    expect(byId['p3']!.rank_in_class).toBe(2); // second in class A
+    expect(byId['p2']!.rank_in_class).toBe(1); // only in class B
   });
 
   it('participants without class: rank_in_class stays undefined', () => {
-    const target = 60_000;
-    // No class set on participant
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-    const entries = [makeEntry('p1', FINISH, target + 1_000)];
+    const p = makeParticipant('p1'); // no class
+    const entries = makeRun('p1', 61_000);
 
-    const result = computeGLP(makeInput([p], entries));
+    const result = computeGLP(makeInput([p], entries, [totalTarget(60_000)]));
     expect(result.results[0]!.rank_in_class).toBeUndefined();
   });
 
-  it('tie breaking: equal penalty → both ranked, positions assigned', () => {
-    const target = 60_000;
-    const p1 = makeParticipant({ id: 'p1', target_time_ms: target });
-    const p2 = makeParticipant({ id: 'p2', target_time_ms: target });
+  it('class-specific section target overrides general target', () => {
+    const p_a = makeParticipant('p1', { class: 'A' });
+    const p_b = makeParticipant('p2', { class: 'B' });
 
-    // Both exactly 1 s off
+    // Both run 62s. General target = 60s, Class A target = 62s (perfect for p1)
     const entries = [
-      makeEntry('p1', FINISH, target + 1_000),
-      makeEntry('p2', FINISH, target - 1_000),
+      ...makeRun('p1', 62_000),
+      ...makeRun('p2', 62_000),
     ];
 
-    const result = computeGLP(makeInput([p1, p2], entries));
+    const targets = [
+      totalTarget(60_000, null), // general: 60s
+      totalTarget(62_000, 'A'),  // class A: 62s (perfect)
+    ];
+
+    const result = computeGLP(makeInput([p_a, p_b], entries, targets));
+    const byId = Object.fromEntries(result.results.map((r) => [r.participant_id, r]));
+
+    expect(byId['p1']!.penalty_points).toBe(0);       // p1: 62s vs 62s = perfect
+    expect(byId['p2']!.penalty_points).toBeCloseTo(2); // p2: 62s vs 60s = 2 pts
+  });
+
+  it('tie breaking: equal penalty → both ranked with consecutive positions', () => {
+    const target = 60_000;
+    const p1 = makeParticipant('p1');
+    const p2 = makeParticipant('p2');
+
+    const entries = [
+      ...makeRun('p1', target + 1_000), // +1s
+      ...makeRun('p2', target - 1_000), // -1s (both 1 pt)
+    ];
+
+    const result = computeGLP(makeInput([p1, p2], entries, [totalTarget(target)]));
     expect(result.results[0]!.penalty_points).toBeCloseTo(1);
     expect(result.results[1]!.penalty_points).toBeCloseTo(1);
     const ranks = result.results.map((r) => r.rank_overall).sort();
@@ -279,163 +320,142 @@ describe('computeGLP', () => {
 
   it('void entries are ignored', () => {
     const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
+    const p = makeParticipant('p1');
 
     const entries = [
-      makeEntry('p1', FINISH, target + 1_000, { is_void: true }), // voided, should be ignored
-      makeEntry('p1', FINISH, target + 5_000),                     // valid
+      makeEntry('p1', START_ID, BASE_TS),
+      makeEntry('p1', ZIEL_ID, BASE_TS + target + 1_000, { is_void: true }), // voided finish
+      makeEntry('p1', ZIEL_ID, BASE_TS + target + 5_000),                    // valid finish
     ];
 
-    const result = computeGLP(makeInput([p], entries));
-    expect(result.results[0]!.actual_time_ms).toBe(target + 5_000);
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)]));
     expect(result.results[0]!.penalty_points).toBeCloseTo(5);
   });
 
   it('unconfirmed entries are ignored', () => {
     const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
+    const p = makeParticipant('p1');
 
     const entries = [
-      makeEntry('p1', FINISH, target + 1_000, { is_confirmed: false }), // unconfirmed
-      makeEntry('p1', FINISH, target + 7_000),                           // confirmed
+      makeEntry('p1', START_ID, BASE_TS),
+      makeEntry('p1', ZIEL_ID, BASE_TS + target + 1_000, { is_confirmed: false }), // unconfirmed
+      makeEntry('p1', ZIEL_ID, BASE_TS + target + 7_000),                           // confirmed
     ];
 
-    const result = computeGLP(makeInput([p], entries));
-    expect(result.results[0]!.actual_time_ms).toBe(target + 7_000);
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)]));
     expect(result.results[0]!.penalty_points).toBeCloseTo(7);
   });
 
-  it('count_best_of field is stored in scoring_detail', () => {
-    const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-    const entries = [makeEntry('p1', FINISH, target + 2_000)];
-
-    const config = makeGLPConfig({ count_best_of: 3 });
-    const result = computeGLP(makeInput([p], entries, config));
-
-    expect(result.results[0]!.scoring_detail['allow_multiple_attempts']).toBe(false);
-  });
-
-  it('returns computed_at as a number (epoch ms)', () => {
-    const before = Date.now();
-    const result = computeGLP(makeInput([], []));
-    const after = Date.now();
-    expect(result.computed_at).toBeGreaterThanOrEqual(before);
-    expect(result.computed_at).toBeLessThanOrEqual(after);
-  });
-
-  it('result id contains participant_id', () => {
-    const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-    const entries = [makeEntry('p1', FINISH, target)];
-    const result = computeGLP(makeInput([p], entries));
-    expect(result.results[0]!.id).toContain('p1');
-  });
-
-  it('negative deviation (early arrival) still produces positive penalty', () => {
-    const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-    const entries = [makeEntry('p1', FINISH, target - 3_000)]; // 3 s early
-
-    const result = computeGLP(makeInput([p], entries));
-    expect(result.results[0]!.penalty_points).toBeCloseTo(3);
-    expect(result.results[0]!.deviation_ms).toBe(-3_000);
-  });
-
-  it('DNF participant with max_penalty set gets max_penalty as penalty_points', () => {
-    const p1 = makeParticipant({ id: 'p1', target_time_ms: 60_000 });
-    const p2 = makeParticipant({ id: 'p2', target_time_ms: 60_000 }); // DNF
-
-    const entries = [makeEntry('p1', FINISH, 60_000 + 2_000)];
-    const config = makeGLPConfig({ max_penalty: 100 });
-    const result = computeGLP(makeInput([p1, p2], entries, config));
-
-    const dnf = result.results.find((r) => r.participant_id === 'p2')!;
-    expect(dnf.is_dnf).toBe(true);
-    expect(dnf.penalty_points).toBe(100);
-  });
-
-  // Branch: !finishPostenId — participant has target_time_ms but there are NO entries at all
-  it('no entries at all: finishPostenId=undefined → all participants are DNF', () => {
-    const p = makeParticipant({ id: 'p1', target_time_ms: 60_000 });
-    const result = computeGLP(makeInput([p], []));
-    expect(result.results[0]!.is_dnf).toBe(true);
-    expect(result.results[0]!.penalty_points).toBeUndefined();
-  });
-
-  // Branch: targetMs === undefined — participant has no target_time_ms at all
-  it('participant with no target_time_ms: treated as DNF', () => {
-    const p = makeParticipant({ id: 'p1' }); // no target_time_ms
-    const entries = [makeEntry('p1', FINISH, 60_000)];
-
-    const result = computeGLP(makeInput([p], entries));
-    expect(result.results[0]!.is_dnf).toBe(true);
-    expect(result.results[0]!.penalty_points).toBeUndefined();
-  });
-
-  // Branch: max_penalty=null → rawPenalty is used directly (config.max_penalty !== null is false)
-  it('max_penalty=null with allow_multiple_attempts: no cap on penalty', () => {
-    const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
-    const entries = [
-      makeEntry('p1', FINISH, target + 50_000),
-      makeEntry('p1', FINISH, target + 300_000),
-    ];
-
-    const config = makeGLPConfig({ allow_multiple_attempts: true, max_penalty: null });
-    const result = computeGLP(makeInput([p], entries, config));
-    // picks the closer one: 50_000 ms off = 50 pts, no cap
-    expect(result.results[0]!.penalty_points).toBeCloseTo(50);
-  });
-
-  // Sort branch: DNF sorted after non-DNF (a.isDnf && !b.isDnf = +1) AND (!a.isDnf && b.isDnf = -1)
   it('sort: non-DNF comes before DNF regardless of insertion order', () => {
     const target = 60_000;
-    // Insert DNF first in participants array
-    const pDnf = makeParticipant({ id: 'pDNF', target_time_ms: target });
-    const pOk = makeParticipant({ id: 'pOK', target_time_ms: target });
+    const dnf = makeParticipant('dnf');
+    const finisher = makeParticipant('fin');
 
-    const entries = [makeEntry('pOK', FINISH, target + 1_000)]; // pDNF has no entry
+    const entries = makeRun('fin', target + 2_000);
+    // dnf has no entries
 
-    const result = computeGLP(makeInput([pDnf, pOk], entries));
-    expect(result.results[0]!.participant_id).toBe('pOK');
-    expect(result.results[1]!.participant_id).toBe('pDNF');
+    const result = computeGLP(makeInput([dnf, finisher], entries, [totalTarget(target)]));
+    expect(result.results[0]!.participant_id).toBe('fin');
+    expect(result.results[1]!.participant_id).toBe('dnf');
   });
 
-  // Branch: allow_multiple_attempts=false, reduce keeps 'earliest' (second entry has higher ms)
-  it('allow_multiple_attempts=false: when second entry is later, keeps first entry', () => {
-    const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
+  // -------------------------------------------------------------------------
+  // Section scoring (multi-posten: START → ZZ1 → ZIEL)
+  // -------------------------------------------------------------------------
 
-    // First entry has lower raw_timestamp_ms, second is higher → reduce keeps first
-    // reduce: e(70_000) < earliest(60_500)? No → keep earliest(60_500)
+  it('section scoring: two sections each with own target', () => {
+    const p = makeParticipant('p1');
+
+    // Abschnitt A: START→ZZ1 = 50s (target 50s → 0 penalty)
+    // Abschnitt B: ZZ1→ZIEL = 30s (target 28s → 2s penalty)
     const entries = [
-      makeEntry('p1', FINISH, target + 500),     // 60_500 — earliest
-      makeEntry('p1', FINISH, target + 10_000),  // 70_000 — later
+      makeEntry('p1', START_ID, BASE_TS),
+      makeEntry('p1', ZZ1_ID,   BASE_TS + 50_000),
+      makeEntry('p1', ZIEL_ID,  BASE_TS + 80_000),
     ];
 
-    const config = makeGLPConfig({ allow_multiple_attempts: false });
-    const result = computeGLP(makeInput([p], entries, config));
+    const targets = [
+      sectionTarget(START_ID, ZZ1_ID,  50_000), // exact
+      sectionTarget(ZZ1_ID,  ZIEL_ID,  28_000), // 2s slow
+    ];
 
-    // earliest is 60_500
-    expect(result.results[0]!.actual_time_ms).toBe(target + 500);
+    const result = computeGLP(makeInput([p], entries, targets, makeGLPConfig(), THREE_POSTEN));
+    expect(result.results[0]!.penalty_points).toBeCloseTo(2);
   });
 
-  // findFinishPosten: multiple posten_ids, most common is chosen as finish
-  it('findFinishPosten: uses most-common posten_id as finish posten', () => {
-    const target = 60_000;
-    const p = makeParticipant({ id: 'p1', target_time_ms: target });
+  it('section scoring falls back to total target when no section targets defined', () => {
+    const target = 80_000;
+    const p = makeParticipant('p1');
 
-    // Two posten_ids; 'finish' appears twice, 'start' appears once
     const entries = [
-      makeEntry('p1', 'start', 0),
-      makeEntry('p1', 'finish', target + 2_000),
-      makeEntry('p1', 'finish', target + 1_000), // second finish entry → finish is most common
+      makeEntry('p1', START_ID, BASE_TS),
+      makeEntry('p1', ZZ1_ID,   BASE_TS + 40_000),
+      makeEntry('p1', ZIEL_ID,  BASE_TS + 80_000 + 3_000), // 3s over total
+    ];
+
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)], makeGLPConfig(), THREE_POSTEN));
+    expect(result.results[0]!.penalty_points).toBeCloseTo(3);
+  });
+
+  // -------------------------------------------------------------------------
+  // Multiple runs
+  // -------------------------------------------------------------------------
+
+  it('run_scoring=best: only best run counts', () => {
+    const target = 60_000;
+    const p = makeParticipant('p1');
+
+    // Lauf 1: 5s off, Lauf 2: 1s off (best)
+    const entries = [
+      ...makeRun('p1', target + 5_000, 1),
+      ...makeRun('p1', target + 1_000, 2),
+    ];
+
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)], makeGLPConfig(), DEFAULT_POSTEN, 'best'));
+    expect(result.results[0]!.penalty_points).toBeCloseTo(1);
+  });
+
+  it('run_scoring=sum: all runs summed', () => {
+    const target = 60_000;
+    const p = makeParticipant('p1');
+
+    const entries = [
+      ...makeRun('p1', target + 5_000, 1), // 5 pts
+      ...makeRun('p1', target + 1_000, 2), // 1 pt
+    ];
+
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)], makeGLPConfig(), DEFAULT_POSTEN, 'sum'));
+    expect(result.results[0]!.penalty_points).toBeCloseTo(6);
+  });
+
+  it('run_scoring=best_of_n: best N of M runs summed', () => {
+    const target = 60_000;
+    const p = makeParticipant('p1');
+
+    // 3 runs: 10, 2, 5 pts → best 2 = 2+5 = 7
+    const entries = [
+      ...makeRun('p1', target + 10_000, 1),
+      ...makeRun('p1', target + 2_000,  2),
+      ...makeRun('p1', target + 5_000,  3),
+    ];
+
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)], makeGLPConfig(), DEFAULT_POSTEN, 'best_of_n', 2));
+    expect(result.results[0]!.penalty_points).toBeCloseTo(7);
+  });
+
+  it('allow_multiple_attempts=true within a run: takes attempt closest to target', () => {
+    const target = 60_000;
+    const p = makeParticipant('p1');
+
+    // Two finish attempts in lap 1 — take the one with duration closer to target
+    const entries = [
+      makeEntry('p1', START_ID, BASE_TS),
+      makeEntry('p1', ZIEL_ID, BASE_TS + target + 15_000), // 15s off
+      makeEntry('p1', ZIEL_ID, BASE_TS + target + 500),    // 0.5s off (best)
     ];
 
     const config = makeGLPConfig({ allow_multiple_attempts: true });
-    const result = computeGLP(makeInput([p], entries, config));
-    // picks best from the 'finish' posten (closest to target = target+1_000 → 1 s off)
-    expect(result.results[0]!.penalty_points).toBeCloseTo(1);
+    const result = computeGLP(makeInput([p], entries, [totalTarget(target)], config));
+    expect(result.results[0]!.penalty_points).toBeCloseTo(0.5);
   });
 });

@@ -91,10 +91,28 @@ describe('computeResults (dispatch)', () => {
       count_best_of: null,
     };
 
+    const BASE = 10_000_000;
+    const TARGET = 60_000;
     const p = makeParticipant('p1');
     const input: ScoringInput = {
-      participants: [{ ...p, target_time_ms: 60_000 }],
-      entries: [makeFinishEntry('p1', 61_000)],
+      participants: [{ ...p, target_time_ms: TARGET }],
+      entries: [
+        // START entry at BASE, FINISH entry at BASE + TARGET + 1000 → 1s late
+        {
+          id: 'e-start', event_id: 'event-1', posten_id: 'posten-start',
+          participant_id: 'p1', source: 'manual',
+          raw_timestamp_ms: BASE, server_recv_ms: BASE,
+          is_confirmed: true, is_void: false,
+          created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'e-finish', event_id: 'event-1', posten_id: 'posten-finish',
+          participant_id: 'p1', source: 'manual',
+          raw_timestamp_ms: BASE + TARGET + 1_000, server_recv_ms: BASE + TARGET + 1_000,
+          is_confirmed: true, is_void: false,
+          created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z',
+        },
+      ],
       config,
     };
 

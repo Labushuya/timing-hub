@@ -6,6 +6,7 @@
   import ConnectionStatus from '$lib/components/ui/ConnectionStatus.svelte';
   import TimeEntryRow from '$lib/components/live/TimeEntryRow.svelte';
   import DisputePanel from '$lib/components/live/DisputePanel.svelte';
+  import TimeDataImporter from '$lib/components/times/TimeDataImporter.svelte';
   import type { TimeEntry } from '$lib/components/live/TimeEntryRow.svelte';
 
   // ---- Types ------------------------------------------------------------------
@@ -49,6 +50,29 @@
   let bottomPanelOpen = $state(true);
 
   let feedEl = $state<HTMLElement | null>(null);
+
+  // ---- CSV importer state ----------------------------------------------------
+
+  let csvImporterOpen = $state(false);
+  let postenCodesForImport = $state<string[]>([]);
+
+  async function loadPostenCodes() {
+    try {
+      const res = await fetch(`${API_BASE}/events/${encodeURIComponent(slug)}/posten`, {
+        headers: { Authorization: `Bearer ${(await import('$lib/stores/auth.svelte.js')).authStore.accessToken ?? ''}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        postenCodesForImport = (data.posten ?? []).map((p: { code: string }) => p.code);
+      }
+    } catch { /* non-critical */ }
+  }
+
+  function handleImportResult(result: { imported: number; errors: number }) {
+    addAudit('CSV-Import', `${result.imported} Zeiten importiert, ${result.errors} Fehler`);
+    csvImporterOpen = false;
+    loadLiveData();
+  }
 
   const API_BASE = (import.meta.env.VITE_API_BASE ?? '/api') as string;
 
@@ -218,6 +242,7 @@
 
   onMount(() => {
     loadLiveData();
+    loadPostenCodes();
     setupWs();
   });
 
@@ -286,6 +311,18 @@
         </h2>
         <div class="feed-controls">
           <span class="entry-count">{totalEntries} Einträge</span>
+          <button
+            class="btn-toggle"
+            onclick={() => { csvImporterOpen = true; }}
+            title="Zeiten aus CSV importieren"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            Zeiten importieren (CSV)
+          </button>
           <button
             class="btn-toggle"
             class:paused={!autoScroll}
@@ -472,6 +509,22 @@
       </div>
     {/if}
   </div>
+
+  <!-- CSV Importer modal -->
+  {#if csvImporterOpen}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-overlay" onclick={() => (csvImporterOpen = false)}>
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+      <div class="modal-inner" onclick={(e) => e.stopPropagation()}>
+        <TimeDataImporter
+          eventSlug={slug}
+          postenCodes={postenCodesForImport}
+          onImported={handleImportResult}
+          onClose={() => (csvImporterOpen = false)}
+        />
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -844,6 +897,23 @@
   .audit-time { font-family: var(--font-mono, monospace); color: var(--color-text-muted); font-size: 0.75rem; }
   .audit-action { font-weight: 700; white-space: nowrap; color: var(--color-text); }
   .audit-detail { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ---- CSV Importer modal ---- */
+
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 1rem;
+  }
+
+  .modal-inner {
+    /* sizing handled by TimeDataImporter itself */
+  }
 
   /* ---- Responsive ---- */
 

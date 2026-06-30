@@ -9,6 +9,10 @@ export interface GLPConfig {
   max_penalty: number | null;
   allow_multiple_attempts: boolean;
   count_best_of: number | null;
+  hide_target_times?: boolean;
+  run_count?: number;
+  run_scoring?: 'best' | 'sum' | 'best_n_of_m';
+  run_best_n?: number;
 }
 
 export interface SPConfig {

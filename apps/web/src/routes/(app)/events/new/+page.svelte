@@ -25,6 +25,10 @@
   let glpMaxPenalty = $state<string>('');
   let glpAllowMultiple = $state(false);
   let glpCountBestOf = $state<string>('');
+  let glpHideTargetTimes = $state(false);
+  let glpRunCount = $state(1);
+  let glpRunScoring = $state<'best' | 'sum' | 'best_n_of_m'>('best');
+  let glpBestN = $state<string>('');
 
   // SP sectors
   interface Sector { code: string; name: string; weight: number }
@@ -117,7 +121,13 @@
           penalty_per_second: glpPenaltyPerSecond,
           max_penalty: glpMaxPenalty ? Number(glpMaxPenalty) : null,
           allow_multiple_attempts: glpAllowMultiple,
-          count_best_of: glpCountBestOf ? Number(glpCountBestOf) : null
+          count_best_of: glpCountBestOf ? Number(glpCountBestOf) : null,
+          hide_target_times: glpHideTargetTimes,
+          run_count: glpRunCount,
+          ...(glpRunCount > 1 ? { run_scoring: glpRunScoring } : {}),
+          ...(glpRunCount > 1 && glpRunScoring === 'best_n_of_m' && glpBestN
+            ? { run_best_n: Number(glpBestN) }
+            : {}),
         };
         return cfg;
       }
@@ -457,6 +467,71 @@
                 placeholder="Alle Versuche"
               />
             </div>
+          {/if}
+
+          <div class="form-group">
+            <label class="form-check toggle-row">
+              <input type="checkbox" bind:checked={glpHideTargetTimes} />
+              <span>Sollzeiten verbergen</span>
+            </label>
+            <p class="form-hint">Teilnehmer sehen die Sollzeiten nicht — erhöht die Spannung (Fahren nach Gefühl)</p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="glp-run-count">Anzahl Läufe</label>
+            <input
+              id="glp-run-count"
+              type="number"
+              class="form-input"
+              bind:value={glpRunCount}
+              min="1"
+              max="10"
+            />
+          </div>
+
+          {#if glpRunCount > 1}
+            <div class="form-group">
+              <div class="form-label">Lauf-Auswertung</div>
+              <div class="radio-group">
+                <label class="radio-option">
+                  <input type="radio" bind:group={glpRunScoring} value="best" />
+                  <span class="radio-label">
+                    Bester Lauf
+                    <span class="radio-hint">Nur der Lauf mit den wenigsten Strafpunkten zählt</span>
+                  </span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" bind:group={glpRunScoring} value="sum" />
+                  <span class="radio-label">
+                    Summe aller Läufe
+                    <span class="radio-hint">Strafpunkte aller Läufe werden addiert</span>
+                  </span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" bind:group={glpRunScoring} value="best_n_of_m" />
+                  <span class="radio-label">
+                    Beste N von M Läufen
+                    <span class="radio-hint">Die besten N Läufe fließen in die Wertung ein</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {#if glpRunScoring === 'best_n_of_m'}
+              <div class="form-group">
+                <label class="form-label" for="glp-best-n">Anzahl gewerteter Läufe (N)</label>
+                <input
+                  id="glp-best-n"
+                  type="number"
+                  class="form-input"
+                  bind:value={glpBestN}
+                  min="1"
+                  max={glpRunCount - 1}
+                  placeholder="z.B. 2"
+                />
+                <p class="form-hint">Die besten {glpBestN || 'N'} von {glpRunCount} Läufen zählen</p>
+              </div>
+            {/if}
           {/if}
         {/if}
 
@@ -910,6 +985,23 @@
     gap: 0.5rem;
     font-size: 0.9375rem;
     cursor: pointer;
+  }
+
+  .toggle-row { font-weight: 600; }
+
+  .form-hint {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    margin: 0.25rem 0 0;
+    line-height: 1.5;
+  }
+
+  .radio-hint {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    font-weight: 400;
+    margin-top: 0.15rem;
   }
 
   /* Format cards */

@@ -15,6 +15,7 @@
     format: EventFormat;
     status: EventStatus;
     classes: string[];
+    hide_target_times?: boolean;
   }
 
   interface ResultEntry {
@@ -83,6 +84,7 @@
   const isLive = $derived(wsStatus === 'connected');
   const allClasses = $derived(eventInfo?.classes ?? []);
   const format = $derived(eventInfo?.format ?? 'SP');
+  const hideTargetTimes = $derived(eventInfo?.hide_target_times === true);
 
   // Format label map
   const FORMAT_LABELS: Record<string, string> = {
@@ -377,7 +379,9 @@
 
               {#if format === 'GLP'}
                 <th class="col-time">Istzeit</th>
-                <th class="col-extra hide-sm">Sollzeit</th>
+                {#if !hideTargetTimes}
+                  <th class="col-extra hide-sm">Sollzeit</th>
+                {/if}
                 <th class="col-dev">Abweichung</th>
                 <th class="col-pts hide-sm">Strafpunkte</th>
               {:else if format === 'SP'}
@@ -434,10 +438,12 @@
                       {entry.actual_time_display ?? msToMinSecMs(entry.actual_time_ms ?? 0)}
                     {/if}
                   </td>
-                  <!-- Sollzeit -->
-                  <td class="col-extra tabular-nums hide-sm">
-                    {entry.target_time_display ?? (entry.target_time_ms != null ? msToMinSecMs(entry.target_time_ms) : '—')}
-                  </td>
+                  <!-- Sollzeit (nur wenn nicht versteckt) -->
+                  {#if !hideTargetTimes}
+                    <td class="col-extra tabular-nums hide-sm">
+                      {entry.target_time_display ?? (entry.target_time_ms != null ? msToMinSecMs(entry.target_time_ms) : '—')}
+                    </td>
+                  {/if}
                   <!-- Abweichung -->
                   <td class="col-dev tabular-nums {deviationCls(entry.deviation_ms)}">
                     {entry.deviation_display ?? formatDeviation(entry.deviation_ms)}
