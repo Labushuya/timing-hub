@@ -1,0 +1,24 @@
+[Unit]
+Description=Timing Hub Docker Compose Application
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/pi/timing-hub/infra
+
+ExecStart=/usr/bin/docker compose \
+    --env-file /home/pi/timing-hub/infra/.env.prod \
+    -f /home/pi/timing-hub/infra/docker-compose.prod.yml \
+    up -d
+
+ExecStop=/usr/bin/docker compose \
+    --env-file /home/pi/timing-hub/infra/.env.prod \
+    -f /home/pi/timing-hub/infra/docker-compose.prod.yml \
+    down
+
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

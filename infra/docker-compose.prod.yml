@@ -1,0 +1,157 @@
+# ============================================================
+# Timing Hub — Production Docker Compose (Raspberry Pi 5, arm64)
+# ============================================================
+#
+# PORT CONFLICT NOTE (Pi-hole coexistence):
+# Pi-hole by default claims ports 53 (DNS), 67 (DHCP), and 80 (admin UI).
+# To avoid conflicts, reconfigure Pi-hole's web admin to port 8081:
+#   In /etc/lighttpd/lighttpd.conf (or Pi-hole's custom config):
+#     server.port = 8081
+#   Then restart: sudo systemctl restart lighttpd
+# Nginx (this stack) then takes 80 (HTTP/ACME challenge) and 443 (HTTPS).
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # PostgreSQL 16 — arm64-compatible via official alpine image
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - timing_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ----------------------------------------------------------
+  # Redis 7 — arm64-compatible via official alpine image
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - timing_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------
+  # API — Node.js backend (internal only, proxied via nginx)
+  # ----------------------------------------------------------
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env.prod
+    expose:
+      - "3001"
+    networks:
+      - timing_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ----------------------------------------------------------
+  # Web — SvelteKit frontend (internal only, proxied via nginx)
+  # ----------------------------------------------------------
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_URL: ${PUBLIC_API_URL}
+      PUBLIC_WS_URL: ${PUBLIC_WS_URL}
+    expose:
+      - "3000"
+    networks:
+      - timing_net
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ----------------------------------------------------------
+  # Nginx — reverse proxy + TLS termination
+  # ----------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - certbot_webroot:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - timing_net
+    depends_on:
+      - web
+      - api
+
+  # ----------------------------------------------------------
+  # Certbot — automatic Let's Encrypt renewal (every 12 h)
+  # ----------------------------------------------------------
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - certbot_webroot:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot;
+        sleep 12h & wait $${!};
+      done"
+    networks:
+      - timing_net
+
+# ----------------------------------------------------------
+# Named volumes (persist across container restarts)
+# ----------------------------------------------------------
+volumes:
+  postgres_data:
+  redis_data:
+  certbot_webroot:
+  letsencrypt:
+
+# ----------------------------------------------------------
+# Networks — internal bridge, no external exposure
+# ----------------------------------------------------------
+networks:
+  timing_net:
+    driver: bridge
