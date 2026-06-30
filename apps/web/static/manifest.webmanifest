@@ -1,0 +1,39 @@
+{
+  "name": "Timing Hub",
+  "short_name": "TimingHub",
+  "description": "Professional motorsport live-timing",
+  "theme_color": "#e63012",
+  "background_color": "#0f0f0f",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "start_url": "/login",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Meine Veranstaltungen",
+      "url": "/dashboard",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "categories": ["sports", "utilities"]
+}

@@ -10,48 +10,61 @@ export default defineConfig({
     sveltekit(),
     VitePWA({
       registerType: 'autoUpdate',
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/api\.timing-hub\.app\/.*$/,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24
-              }
-            }
-          }
-        ]
+      srcDir: 'src',
+      filename: 'service-worker.ts',
+      strategies: 'injectManifest',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff,woff2}']
       },
       manifest: {
         name: 'Timing Hub',
         short_name: 'TimingHub',
-        description: 'Professional motorsport timing platform',
+        description: 'Professional motorsport live-timing',
         theme_color: '#e63012',
         background_color: '#0f0f0f',
         display: 'standalone',
-        orientation: 'portrait',
+        orientation: 'portrait-primary',
+        start_url: '/login',
+        scope: '/',
         icons: [
           {
             src: '/icons/icon-192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
             src: '/icons/icon-512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: '/icons/icon-maskable-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
-        ]
+        ],
+        shortcuts: [
+          {
+            name: 'Meine Veranstaltungen',
+            url: '/dashboard',
+            icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }]
+          }
+        ],
+        categories: ['sports', 'utilities']
+      },
+      devOptions: {
+        enabled: true,
+        type: 'module'
       }
     })
   ],
   resolve: {
     alias: {
-      $lib: resolve('./src/lib')
+      $lib: resolve('./src/lib'),
+      $i18n: resolve('./src/i18n')
     }
   },
   server: {

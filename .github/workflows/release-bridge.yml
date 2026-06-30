@@ -11,40 +11,47 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - goos: windows
             goarch: amd64
-            runner: ubuntu-latest
-            binary_suffix: ".exe"
+            binary: dist/timy-bridge-windows-amd64.exe
             apt_packages: ""
+            cgo_enabled: "0"
+            cc: ""
           - goos: darwin
             goarch: arm64
-            runner: ubuntu-latest
-            binary_suffix: ""
+            binary: dist/timy-bridge-darwin-arm64
             apt_packages: ""
+            cgo_enabled: "0"
+            cc: ""
           - goos: darwin
             goarch: amd64
-            runner: ubuntu-latest
-            binary_suffix: ""
+            binary: dist/timy-bridge-darwin-amd64
             apt_packages: ""
+            cgo_enabled: "0"
+            cc: ""
           - goos: linux
             goarch: amd64
-            runner: ubuntu-latest
-            binary_suffix: ""
+            binary: dist/timy-bridge-linux-amd64
             apt_packages: "libusb-dev"
+            cgo_enabled: "1"
+            cc: ""
           - goos: linux
             goarch: arm64
-            runner: ubuntu-latest
-            binary_suffix: ""
+            binary: dist/timy-bridge-linux-arm64
             apt_packages: "libusb-dev gcc-aarch64-linux-gnu"
+            cgo_enabled: "1"
+            cc: "aarch64-linux-gnu-gcc"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for git describe in Makefile
 
       - name: Install libusb (Linux targets)
         if: matrix.apt_packages != ''
@@ -58,23 +65,22 @@ jobs:
           go-version: "1.23"
           cache-dependency-path: apps/bridge/go.sum
 
-      - name: Build binary
+      - name: Build binary via Makefile
         working-directory: apps/bridge
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: ${{ matrix.goos == 'linux' && '1' || '0' }}
-          CC: ${{ matrix.goarch == 'arm64' && matrix.goos == 'linux' && 'aarch64-linux-gnu-gcc' || '' }}
+          CGO_ENABLED: ${{ matrix.cgo_enabled }}
+          CC: ${{ matrix.cc }}
         run: |
-          BINARY_NAME="timy-bridge-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.binary_suffix }}"
-          go build -ldflags="-s -w" -o "${BINARY_NAME}" .
-          echo "BINARY_NAME=${BINARY_NAME}" >> $GITHUB_ENV
+          mkdir -p dist
+          make build-ci OUTPUT=${{ matrix.binary }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: timy-bridge-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: apps/bridge/timy-bridge-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.binary_suffix }}
+          path: apps/bridge/${{ matrix.binary }}
           retention-days: 1
 
   release:

@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import { api } from '$lib/api/client.js';
   import type { Event, EventFormat } from '@timing-hub/shared-types';
+  import PrintButton from '$lib/components/results/PrintButton.svelte';
 
   // ---- Types ------------------------------------------------------------------
 
@@ -159,10 +160,6 @@
     URL.revokeObjectURL(url);
   }
 
-  function printResults() {
-    window.print();
-  }
-
   // ---- Helpers ----------------------------------------------------------------
 
   function rankClass(r: ResultEntry): string {
@@ -248,14 +245,7 @@
         CSV
       </button>
 
-      <button class="btn btn-ghost" onclick={printResults} title="Drucken / PDF">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <polyline points="6 9 6 2 18 2 18 9"/>
-          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
-          <rect x="6" y="14" width="12" height="8"/>
-        </svg>
-        Drucken
-      </button>
+      <PrintButton {slug} apiBase={API_BASE} disabled={results.length === 0} />
     </div>
   </div>
 

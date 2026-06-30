@@ -1,15 +1,37 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="de" class="dark">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="%sveltekit.assets%/favicon.ico" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="%sveltekit.assets%/favicon.ico" sizes="any" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#e63012" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="description" content="Professional motorsport timing platform" />
+    <meta name="apple-mobile-web-app-title" content="Timing Hub" />
+    <meta name="description" content="Professionelles Motorsport Live-Timing" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="%sveltekit.assets%/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta property="og:title" content="Timing Hub" />
+    <meta property="og:description" content="Professionelles Motorsport Live-Timing" />
+    <meta property="og:image" content="/icons/icon-512.png" />
+    <meta property="og:type" content="website" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Timing Hub",
+      "description": "Professionelles Motorsport Live-Timing — Zeitnahme, Ergebnisse und Ranglisten in Echtzeit.",
+      "url": "https://timinghub.de",
+      "applicationCategory": "SportsApplication",
+      "operatingSystem": "Any",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "EUR"
+      }
+    }
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover" class="antialiased">

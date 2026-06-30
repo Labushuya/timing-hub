@@ -234,6 +234,19 @@ function buildPrintHtml(event: EventRow, rows: ResultRow[]): string {
   };
   const formatName = formatLabel[event.format] ?? event.format;
 
+  // Determine page orientation based on participant count
+  const isLandscape = rows.length > 30;
+
+  // Column span for class sub-headers
+  const colSpan = (): number => {
+    switch (event.format) {
+      case 'glp':          return 9;
+      case 'rundstrecke':  return 7;
+      case 'orientierung': return 5;
+      default:             return 7; // sonderpruefung + fallback
+    }
+  };
+
   const buildTableHeaders = (): string => {
     switch (event.format) {
       case 'glp':
@@ -260,10 +273,10 @@ function buildPrintHtml(event: EventRow, rows: ResultRow[]): string {
           <td>${crew}</td>
           <td>${fahrzeug}</td>
           <td>${r.class ?? ''}</td>
-          <td>${formatMs(r.actual_time_ms != null ? Number(r.actual_time_ms) : null)}</td>
-          <td>${formatMs(r.target_time_ms != null ? Number(r.target_time_ms) : null)}</td>
-          <td>${formatMs(r.deviation_ms != null ? Number(r.deviation_ms) : null)}</td>
-          <td>${r.penalty_points != null ? Number(r.penalty_points) : ''}</td>
+          <td class="mono">${formatMs(r.actual_time_ms != null ? Number(r.actual_time_ms) : null)}</td>
+          <td class="mono">${formatMs(r.target_time_ms != null ? Number(r.target_time_ms) : null)}</td>
+          <td class="mono">${formatMs(r.deviation_ms != null ? Number(r.deviation_ms) : null)}</td>
+          <td class="num">${r.penalty_points != null ? Number(r.penalty_points) : ''}</td>
         </tr>`;
       case 'rundstrecke':
         return `<tr${r.is_dnf ? ' class="dnf-row"' : ''}>
@@ -271,9 +284,9 @@ function buildPrintHtml(event: EventRow, rows: ResultRow[]): string {
           <td>${r.startnummer}</td>
           <td>${r.driver_name}</td>
           <td>${r.class ?? ''}</td>
-          <td>${r.lap_count ?? ''}</td>
-          <td>${formatMs(r.best_lap_ms != null ? Number(r.best_lap_ms) : null)}</td>
-          <td>${formatMs(r.total_time_ms != null ? Number(r.total_time_ms) : null)}</td>
+          <td class="num">${r.lap_count ?? ''}</td>
+          <td class="mono">${formatMs(r.best_lap_ms != null ? Number(r.best_lap_ms) : null)}</td>
+          <td class="mono">${formatMs(r.total_time_ms != null ? Number(r.total_time_ms) : null)}</td>
         </tr>`;
       case 'orientierung':
         return `<tr${r.is_dnf ? ' class="dnf-row"' : ''}>
@@ -281,7 +294,7 @@ function buildPrintHtml(event: EventRow, rows: ResultRow[]): string {
           <td>${r.startnummer}</td>
           <td>${r.driver_name}</td>
           <td>${r.class ?? ''}</td>
-          <td>${r.penalty_points != null ? Number(r.penalty_points) : ''}</td>
+          <td class="num">${r.penalty_points != null ? Number(r.penalty_points) : ''}</td>
         </tr>`;
       default:
         return `<tr${r.is_dnf ? ' class="dnf-row"' : ''}>
@@ -290,13 +303,44 @@ function buildPrintHtml(event: EventRow, rows: ResultRow[]): string {
           <td>${crew}</td>
           <td>${fahrzeug}</td>
           <td>${r.class ?? ''}</td>
-          <td>${formatMs(r.total_time_ms != null ? Number(r.total_time_ms) : null)}</td>
-          <td>${r.gap_to_leader_ms != null && Number(r.gap_to_leader_ms) > 0 ? '+' + formatMs(Number(r.gap_to_leader_ms)) : formatMs(r.total_time_ms != null ? Number(r.total_time_ms) : null)}</td>
+          <td class="mono">${formatMs(r.total_time_ms != null ? Number(r.total_time_ms) : null)}</td>
+          <td class="mono">${r.gap_to_leader_ms != null && Number(r.gap_to_leader_ms) > 0 ? '+' + formatMs(Number(r.gap_to_leader_ms)) : (r.rank_overall === 1 ? '—' : formatMs(r.gap_to_leader_ms != null ? Number(r.gap_to_leader_ms) : null))}</td>
         </tr>`;
     }
   };
 
-  const tableRows = rows.map(buildTableRow).join('\n');
+  // Group rows by class and insert class sub-headers
+  const buildTableBody = (): string => {
+    // Collect unique classes in the order they first appear
+    const classes: string[] = [];
+    const byClass = new Map<string, ResultRow[]>();
+
+    for (const r of rows) {
+      const cls = r.class ?? '—';
+      if (!byClass.has(cls)) {
+        classes.push(cls);
+        byClass.set(cls, []);
+      }
+      byClass.get(cls)!.push(r);
+    }
+
+    // Single class or no class info — no sub-headers needed
+    if (classes.length <= 1) {
+      return rows.map(buildTableRow).join('\n');
+    }
+
+    const parts: string[] = [];
+    for (const cls of classes) {
+      const clsRows = byClass.get(cls)!;
+      parts.push(`<tr class="class-header"><td colspan="${colSpan()}">Klasse: ${cls} &mdash; ${clsRows.length} Teilnehmer</td></tr>`);
+      parts.push(...clsRows.map(buildTableRow));
+    }
+    return parts.join('\n');
+  };
+
+  const printDate = new Date().toLocaleDateString('de-DE', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  });
 
   return `<!DOCTYPE html>
 <html lang="de">
@@ -306,84 +350,180 @@ function buildPrintHtml(event: EventRow, rows: ResultRow[]): string {
   <title>Ergebnisse — ${event.name}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
       font-family: Arial, Helvetica, sans-serif;
-      font-size: 11pt;
+      font-size: 10.5pt;
       color: #000;
       background: #fff;
-      padding: 20mm 15mm;
+      padding: 12mm 14mm 10mm;
     }
-    header {
+
+    /* ---- Page header ---- */
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
       border-bottom: 2px solid #000;
       padding-bottom: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
+      gap: 16px;
     }
-    header h1 { font-size: 18pt; margin-bottom: 4px; }
-    header .meta { font-size: 10pt; color: #555; }
+
+    .event-logo-placeholder {
+      width: 52px;
+      height: 52px;
+      border: 1.5px solid #bbb;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 7pt;
+      color: #aaa;
+      text-align: center;
+      flex-shrink: 0;
+      line-height: 1.3;
+    }
+
+    .event-info { flex: 1; }
+    .event-title { font-size: 17pt; font-weight: bold; margin-bottom: 3px; }
+    .event-meta  { font-size: 9.5pt; color: #444; line-height: 1.6; }
+    .event-meta span + span::before { content: ' · '; }
+
+    /* ---- Table ---- */
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 12px;
+      margin-top: 4px;
     }
-    th {
-      background: #222;
+
+    thead th {
+      background: #1a1a1a;
       color: #fff;
       font-weight: bold;
-      padding: 6px 8px;
+      padding: 5px 7px;
       text-align: left;
-      font-size: 10pt;
+      font-size: 9pt;
+      border: 1px solid #1a1a1a;
     }
+
     td {
-      padding: 5px 8px;
-      border-bottom: 1px solid #e0e0e0;
-      font-size: 10pt;
+      padding: 4px 7px;
+      border: 1px solid #d8d8d8;
+      font-size: 9.5pt;
       vertical-align: top;
     }
-    tr:nth-child(even) td { background: #f7f7f7; }
+
+    tbody tr:nth-child(even) td { background: #f5f5f5; }
+    tbody tr:nth-child(odd)  td { background: #fff; }
+
+    tr.class-header td {
+      background: #e8e8e8 !important;
+      font-weight: 700;
+      font-size: 9pt;
+      letter-spacing: 0.02em;
+      border-top: 2px solid #555;
+      border-bottom: 2px solid #555;
+      padding: 4px 7px;
+    }
+
     tr.dnf-row td { color: #888; }
+
     .dnf {
       display: inline-block;
-      background: #d32f2f;
-      color: #fff;
-      font-size: 8pt;
-      padding: 1px 4px;
+      border: 1px solid #888;
+      color: #666;
+      font-size: 7pt;
+      padding: 0 3px;
       border-radius: 2px;
-      margin-left: 4px;
+      margin-left: 3px;
+      font-weight: bold;
     }
-    footer {
-      margin-top: 20px;
-      font-size: 9pt;
+
+    .mono { font-variant-numeric: tabular-nums; font-family: 'Courier New', monospace; font-size: 9pt; }
+    .num  { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* ---- Page footer ---- */
+    .page-footer {
+      margin-top: 14px;
+      font-size: 8.5pt;
       color: #888;
       border-top: 1px solid #ccc;
-      padding-top: 6px;
+      padding-top: 5px;
+      display: flex;
+      justify-content: space-between;
     }
+
+    /* ---- Print styles ---- */
     @media print {
       body { padding: 0; }
-      @page { margin: 15mm; }
-      th { background: #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+      @page {
+        size: A4 ${isLandscape ? 'landscape' : 'portrait'};
+        margin: 12mm 14mm 10mm;
+      }
+
+      thead { display: table-header-group; }
+      tfoot { display: table-footer-group; }
+
+      tbody tr { break-inside: avoid; }
+
+      tr.class-header { break-before: auto; }
+
+      thead th {
+        background: #1a1a1a !important;
+        color: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      tr.class-header td {
+        background: #e8e8e8 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      tbody tr:nth-child(even) td {
+        background: #f5f5f5 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .page-footer { position: fixed; bottom: 0; left: 0; right: 0; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>${event.name}</h1>
-    <div class="meta">
-      Disziplin: ${formatName} &nbsp;|&nbsp;
-      Datum: ${eventDate} &nbsp;|&nbsp;
-      ${rows.length} Teilnehmer
+
+  <div class="page-header">
+    <div class="event-logo-placeholder">Logo</div>
+    <div class="event-info">
+      <div class="event-title">${event.name}</div>
+      <div class="event-meta">
+        <span>Disziplin: ${formatName}</span>
+        <span>Datum: ${eventDate}</span>
+        <span>${rows.length} Teilnehmer</span>
+      </div>
     </div>
-  </header>
+  </div>
+
   <table>
     <thead>
       ${buildTableHeaders()}
     </thead>
     <tbody>
-      ${tableRows}
+      ${buildTableBody()}
     </tbody>
   </table>
-  <footer>
-    Ergebnisliste generiert am ${new Date().toLocaleString('de-DE')} &mdash; Timing Hub
-  </footer>
+
+  <div class="page-footer">
+    <span>Erstellt mit Timing Hub &middot; timinghub.de &middot; ${printDate}</span>
+    <span>Ergebnisse vom ${new Date().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+  </div>
+
+  <script>
+    setTimeout(function () { window.print(); }, 500);
+  <\/script>
 </body>
 </html>`;
 }

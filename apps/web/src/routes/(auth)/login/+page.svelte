@@ -2,25 +2,27 @@
   import { authStore } from '$lib/stores/auth.svelte.js';
   import { goto } from '$app/navigation';
   import Button from '$lib/components/ui/Button.svelte';
+  import { LL } from '$i18n/index.js';
 
   let email = $state('');
   let password = $state('');
   let error = $state<string | null>(null);
 
   const isLoading = $derived(authStore.isLoading);
+  const t = $derived($LL);
 
   function getErrorMessage(err: unknown): string {
     if (err instanceof Error) {
       const msg = err.message.toLowerCase();
       if (msg.includes('401') || msg.includes('invalid') || msg.includes('credentials') || msg.includes('unauthorized')) {
-        return 'E-Mail-Adresse oder Passwort ist falsch.';
+        return t.auth.invalidCredentials();
       }
       if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed')) {
-        return 'Verbindungsfehler. Bitte prüfe deine Internetverbindung.';
+        return t.common.error();
       }
       return err.message;
     }
-    return 'Anmeldung fehlgeschlagen. Bitte versuche es erneut.';
+    return t.auth.invalidCredentials();
   }
 
   async function handleSubmit(e: SubmitEvent) {
@@ -36,7 +38,7 @@
 </script>
 
 <svelte:head>
-  <title>Anmelden — Timing Hub</title>
+  <title>{t.auth.login()} — Timing Hub</title>
 </svelte:head>
 
 <div class="auth-page">
@@ -53,7 +55,7 @@
         </svg>
       </div>
       <h1 class="wordmark">Timing Hub</h1>
-      <p class="auth-subtitle">Anmelden</p>
+      <p class="auth-subtitle">{t.auth.login()}</p>
     </header>
 
     <!-- Form -->
@@ -70,7 +72,7 @@
       {/if}
 
       <div class="form-group">
-        <label for="email" class="form-label">E-Mail-Adresse</label>
+        <label for="email" class="form-label">{t.auth.email()}</label>
         <input
           id="email"
           type="email"
@@ -84,7 +86,7 @@
       </div>
 
       <div class="form-group">
-        <label for="password" class="form-label">Passwort</label>
+        <label for="password" class="form-label">{t.auth.password()}</label>
         <input
           id="password"
           type="password"
@@ -104,15 +106,15 @@
         loading={isLoading}
         fullWidth
       >
-        Anmelden
+        {t.auth.loginButton()}
       </Button>
     </form>
 
     <!-- Footer -->
     <footer class="auth-footer">
       <p>
-        Noch kein Konto?
-        <a href="/register" class="link">Mit Einladungs-Token registrieren</a>
+        {t.auth.noAccount()}
+        <a href="/register" class="link">{t.auth.register()}</a>
       </p>
     </footer>
   </div>

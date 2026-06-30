@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -26,6 +27,8 @@ type State struct {
 	// LastImpulseAtMs is the Unix millisecond timestamp of the last impulse,
 	// or 0 if none received this session.
 	LastImpulseAtMs int64
+	// BridgeSeq is the most recently issued bridge_seq counter value.
+	BridgeSeq int64
 	// Version is the build version string, set at startup.
 	Version string
 }
@@ -36,18 +39,24 @@ type statusResponse struct {
 	DeviceConnected bool   `json:"device_connected"`
 	BufferCount     int    `json:"buffer_count"`
 	LastImpulseAt   *int64 `json:"last_impulse_at"`
+	BridgeSeq       int64  `json:"bridge_seq"`
 	Version         string `json:"version"`
 }
 
+// reconnectFunc is called by POST /reconnect to trigger an immediate reconnect.
+type reconnectFunc func()
+
 // Server is the local HTTP server.
 type Server struct {
-	port   int
-	state  *State
-	log    *logrus.Logger
-	server *http.Server
+	port      int
+	state     *State
+	log       *logrus.Logger
+	server    *http.Server
+	reconnect reconnectFunc
 }
 
 // NewServer creates a Server but does not start it.
+// reconnect may be nil if reconnect triggering is not supported.
 func NewServer(port int, state *State, log *logrus.Logger) *Server {
 	return &Server{
 		port:  port,
@@ -56,12 +65,18 @@ func NewServer(port int, state *State, log *logrus.Logger) *Server {
 	}
 }
 
+// SetReconnectFunc registers a callback invoked by POST /reconnect.
+func (s *Server) SetReconnectFunc(fn reconnectFunc) {
+	s.reconnect = fn
+}
+
 // Start binds to localhost:<port> and serves requests.
 // It blocks until the server is stopped or an error occurs.
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/reconnect", s.handleReconnect)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
 	ln, err := net.Listen("tcp", addr)
@@ -93,6 +108,10 @@ func (s *Server) Stop() {
 	_ = s.server.Shutdown(ctx)
 }
 
+// -------------------------------------------------------------------
+// Handlers
+// -------------------------------------------------------------------
+
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -103,11 +122,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	devConn := atomic.LoadInt32(&s.state.DeviceConnectedFlag) == 1
 	bufCount := int(atomic.LoadInt32(&s.state.BufferCount))
 	lastMs := atomic.LoadInt64(&s.state.LastImpulseAtMs)
+	bridgeSeq := atomic.LoadInt64(&s.state.BridgeSeq)
 
 	resp := statusResponse{
 		Connected:       wsConn,
 		DeviceConnected: devConn,
 		BufferCount:     bufCount,
+		BridgeSeq:       bridgeSeq,
 		Version:         s.state.Version,
 	}
 	if lastMs != 0 {
@@ -128,15 +149,33 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("OK"))
 }
 
+func (s *Server) handleReconnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.reconnect != nil {
+		s.reconnect()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"reconnecting"}`))
+}
+
+// -------------------------------------------------------------------
+// CORS middleware
+// -------------------------------------------------------------------
+
 // corsMiddleware adds CORS headers permitting requests from localhost origins.
-// This allows a browser dashboard on localhost to poll the status endpoint.
+// This allows the Svelte dashboard on localhost to poll the status endpoint.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if isLocalhostOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -157,7 +196,7 @@ func isLocalhostOrigin(origin string) bool {
 		"http://127.0.0.1",
 		"https://127.0.0.1",
 	} {
-		if len(origin) >= len(prefix) && origin[:len(prefix)] == prefix {
+		if strings.HasPrefix(origin, prefix) {
 			return true
 		}
 	}

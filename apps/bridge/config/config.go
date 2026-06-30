@@ -86,6 +86,15 @@ func defaults(cfg *Config) {
 	}
 }
 
+// DefaultConfig returns a Config populated entirely with default values.
+// Required fields (server.ws_url, server.bridge_token, server.posten_id)
+// are left empty; callers must fill them before use.
+func DefaultConfig() *Config {
+	cfg := &Config{}
+	defaults(cfg)
+	return cfg
+}
+
 // LoadConfig reads and parses the TOML config file at path.
 // It applies defaults for zero-value fields.
 func LoadConfig(path string) (*Config, error) {

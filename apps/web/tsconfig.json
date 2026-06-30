@@ -5,6 +5,12 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "$lib": ["./src/lib"],
+      "$lib/*": ["./src/lib/*"],
+      "$i18n": ["./src/i18n"],
+      "$i18n/*": ["./src/i18n/*"]
+    }
   }
 }
