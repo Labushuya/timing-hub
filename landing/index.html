@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Timing Hub — Professionelle Live-Zeitnahme für klassische Motorsport-Veranstaltungen. Browser-basiert, kein Install, Echtzeit.">
+  <meta name="description" content="Timing Hub — Professionelle Live-Zeitnahme für klassische Motorsport-Veranstaltungen. Browser-basiert, Echtzeit, keine Installation.">
   <meta property="og:title" content="Timing Hub — Professionelle Live-Zeitnahme">
   <meta property="og:description" content="Browser-basierte Zeitnahme für klassische Motorsport-Veranstaltungen. Echtzeit, installationslos, mit ALGE Timy-Integration.">
   <meta property="og:image" content="https://timinghub.de/og-image.png">
@@ -153,10 +153,10 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      justify-content: center;
+      justify-content: flex-start;
       align-items: center;
       text-align: center;
-      padding: 80px 20px 100px;
+      padding: 18vh 20px 120px;
       position: relative;
     }
 
@@ -327,6 +327,13 @@
 
     /* CHANGE 5: mobile full-width buttons */
     @media (max-width: 480px) {
+      .hero {
+        padding-top: 14vh;
+        padding-bottom: 100px;
+      }
+      .scroll-hint {
+        bottom: 36px;
+      }
       .cta-group {
         flex-direction: column;
         align-items: stretch;
@@ -341,7 +348,7 @@
     /* CHANGE 1: scroll indicator */
     .scroll-hint {
       position: absolute;
-      bottom: 32px;
+      bottom: 48px;
       left: 50%;
       transform: translateX(-50%);
       display: flex;
