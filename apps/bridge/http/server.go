@@ -9,10 +9,12 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"go.bug.st/serial"
 )
 
 // State holds shared runtime state written by other components and read
@@ -31,6 +33,12 @@ type State struct {
 	BridgeSeq int64
 	// Version is the build version string, set at startup.
 	Version string
+
+	// CurrentDeviceType is the device type string currently active.
+	// Protected by DeviceMu.
+	CurrentDeviceType string
+	// DeviceMu guards CurrentDeviceType.
+	DeviceMu sync.RWMutex
 }
 
 // statusResponse is the JSON body returned by GET /status.
@@ -41,18 +49,85 @@ type statusResponse struct {
 	LastImpulseAt   *int64 `json:"last_impulse_at"`
 	BridgeSeq       int64  `json:"bridge_seq"`
 	Version         string `json:"version"`
+	DeviceType      string `json:"device_type,omitempty"`
 }
+
+// DeviceInfo describes a single supported device type.
+type DeviceInfo struct {
+	Type        string `json:"type"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+// devicesResponse is the JSON body returned by GET /devices.
+type devicesResponse struct {
+	CurrentType    string       `json:"current_type"`
+	AvailableTypes []DeviceInfo `json:"available_types"`
+	SerialPorts    []string     `json:"serial_ports"`
+}
+
+// deviceChangeRequest is the JSON body expected by POST /device.
+type deviceChangeRequest struct {
+	Type       string `json:"type"`
+	SerialPort string `json:"serial_port"`
+	BaudRate   int    `json:"baud_rate"`
+}
+
+// deviceChangeResponse is the JSON body returned by POST /device on success.
+type deviceChangeResponse struct {
+	OK          bool   `json:"ok"`
+	CurrentType string `json:"current_type"`
+}
+
+// supportedDevices lists all device types in display order.
+var supportedDevices = []DeviceInfo{
+	{
+		Type:        "auto",
+		Label:       "Automatisch erkennen",
+		Description: "USB zuerst (Timy), dann seriell",
+	},
+	{
+		Type:        "alge_timy",
+		Label:       "ALGE Timy 3",
+		Description: "USB-Verbindung (VID 0x0c4a)",
+	},
+	{
+		Type:        "tag_heuer_cp",
+		Label:       "TAG Heuer CP-Serie",
+		Description: "RS-232 / USB-Serial (CP 450–540)",
+	},
+	{
+		Type:        "trentmann_rallystar",
+		Label:       "Trentmann RallyStar",
+		Description: "RS-232 / USB-Serial",
+	},
+}
+
+// validDeviceTypes is the set of accepted device type strings.
+var validDeviceTypes = func() map[string]bool {
+	m := make(map[string]bool, len(supportedDevices))
+	for _, d := range supportedDevices {
+		m[d.Type] = true
+	}
+	return m
+}()
 
 // reconnectFunc is called by POST /reconnect to trigger an immediate reconnect.
 type reconnectFunc func()
 
+// DeviceChangeCallback is called by POST /device when the user selects a new
+// device type. The bridge should tear down the current driver and start a new
+// one with the supplied parameters.
+type DeviceChangeCallback func(deviceType string, serialPort string, baudRate int)
+
 // Server is the local HTTP server.
 type Server struct {
-	port      int
-	state     *State
-	log       *logrus.Logger
-	server    *http.Server
-	reconnect reconnectFunc
+	port         int
+	state        *State
+	log          *logrus.Logger
+	server       *http.Server
+	reconnect    reconnectFunc
+	deviceChange DeviceChangeCallback
 }
 
 // NewServer creates a Server but does not start it.
@@ -70,6 +145,11 @@ func (s *Server) SetReconnectFunc(fn reconnectFunc) {
 	s.reconnect = fn
 }
 
+// SetDeviceChangeFunc registers a callback invoked by POST /device.
+func (s *Server) SetDeviceChangeFunc(fn DeviceChangeCallback) {
+	s.deviceChange = fn
+}
+
 // Start binds to localhost:<port> and serves requests.
 // It blocks until the server is stopped or an error occurs.
 func (s *Server) Start() error {
@@ -77,6 +157,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/reconnect", s.handleReconnect)
+	mux.HandleFunc("/devices", s.handleDevices)
+	mux.HandleFunc("/device", s.handleDevice)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
 	ln, err := net.Listen("tcp", addr)
@@ -124,12 +206,17 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	lastMs := atomic.LoadInt64(&s.state.LastImpulseAtMs)
 	bridgeSeq := atomic.LoadInt64(&s.state.BridgeSeq)
 
+	s.state.DeviceMu.RLock()
+	currentType := s.state.CurrentDeviceType
+	s.state.DeviceMu.RUnlock()
+
 	resp := statusResponse{
 		Connected:       wsConn,
 		DeviceConnected: devConn,
 		BufferCount:     bufCount,
 		BridgeSeq:       bridgeSeq,
 		Version:         s.state.Version,
+		DeviceType:      currentType,
 	}
 	if lastMs != 0 {
 		resp.LastImpulseAt = &lastMs
@@ -160,6 +247,82 @@ func (s *Server) handleReconnect(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"reconnecting"}`))
+}
+
+func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.state.DeviceMu.RLock()
+	currentType := s.state.CurrentDeviceType
+	s.state.DeviceMu.RUnlock()
+
+	if currentType == "" {
+		currentType = "auto"
+	}
+
+	ports, err := serial.GetPortsList()
+	if err != nil {
+		s.log.WithError(err).Warn("failed to list serial ports")
+		ports = []string{}
+	}
+	if ports == nil {
+		ports = []string{}
+	}
+
+	resp := devicesResponse{
+		CurrentType:    currentType,
+		AvailableTypes: supportedDevices,
+		SerialPorts:    ports,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req deviceChangeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	req.Type = strings.TrimSpace(strings.ToLower(req.Type))
+	if !validDeviceTypes[req.Type] {
+		http.Error(w, fmt.Sprintf("unknown device type %q", req.Type), http.StatusBadRequest)
+		return
+	}
+
+	// Update shared state so /status and /devices reflect the new type immediately.
+	s.state.DeviceMu.Lock()
+	s.state.CurrentDeviceType = req.Type
+	s.state.DeviceMu.Unlock()
+
+	if s.deviceChange != nil {
+		go s.deviceChange(req.Type, req.SerialPort, req.BaudRate)
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"type":        req.Type,
+		"serial_port": req.SerialPort,
+		"baud_rate":   req.BaudRate,
+	}).Info("device type changed via HTTP")
+
+	resp := deviceChangeResponse{
+		OK:          true,
+		CurrentType: req.Type,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // -------------------------------------------------------------------

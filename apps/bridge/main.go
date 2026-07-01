@@ -38,6 +38,35 @@ type state struct {
 	httpState bridgehttp.State
 }
 
+// deviceParams holds mutable device configuration that can be changed at
+// runtime via POST /device without restarting the bridge process.
+type deviceParams struct {
+	mu         sync.RWMutex
+	deviceType device.DeviceType
+	serialPort string
+	baudRate   int
+	vendorID   uint16
+	productID  uint16
+}
+
+func (p *deviceParams) get() (device.DeviceType, string, int, uint16, uint16) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.deviceType, p.serialPort, p.baudRate, p.vendorID, p.productID
+}
+
+func (p *deviceParams) set(dt device.DeviceType, port string, baud int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.deviceType = dt
+	if port != "" {
+		p.serialPort = port
+	}
+	if baud > 0 {
+		p.baudRate = baud
+	}
+}
+
 func main() {
 	// Default config path: bridge.toml next to the executable.
 	execPath, err := os.Executable()
@@ -77,20 +106,25 @@ func main() {
 	s := &state{}
 	s.httpState.Version = Version
 
-	// Build the device driver from config.
-	drv, err := device.NewDriver(
-		device.DeviceType(cfg.Device.Type),
-		cfg.Device.VendorID,
-		cfg.Device.ProductID,
-		device.SerialConfig{
-			Port:     cfg.Device.SerialPort,
-			BaudRate: cfg.Device.BaudRate,
-		},
-	)
+	// Mutable device parameters — updated by the HTTP device-change callback.
+	params := &deviceParams{
+		deviceType: device.DeviceType(cfg.Device.Type),
+		serialPort: cfg.Device.SerialPort,
+		baudRate:   cfg.Device.BaudRate,
+		vendorID:   cfg.Device.VendorID,
+		productID:  cfg.Device.ProductID,
+	}
+
+	// Initialise CurrentDeviceType in the shared HTTP state.
+	s.httpState.DeviceMu.Lock()
+	s.httpState.CurrentDeviceType = cfg.Device.Type
+	s.httpState.DeviceMu.Unlock()
+
+	// Build the initial device driver from config.
+	drv, err := newDriverFromParams(params)
 	if err != nil {
 		log.WithError(err).Fatal("failed to create device driver")
 	}
-
 	log.WithField("driver", drv.Name()).Info("device driver selected")
 
 	// impulse bus: device driver writes device.Impulse; the adapter goroutine
@@ -99,6 +133,9 @@ func main() {
 
 	// eventBus carries the WS-client-facing events (usb.TimyEvent).
 	eventBus := make(chan usb.TimyEvent, 512)
+
+	// restartDevice is signalled by the device-change callback to swap drivers.
+	restartDevice := make(chan struct{}, 1)
 
 	// WS client.
 	wsClient := ws.NewClient(ws.Config{
@@ -115,6 +152,15 @@ func main() {
 	httpServer := bridgehttp.NewServer(cfg.HTTP.Port, &s.httpState, log)
 	// Wire up manual reconnect via POST /reconnect.
 	httpServer.SetReconnectFunc(wsClient.TriggerReconnect)
+	// Wire up device-change callback via POST /device.
+	httpServer.SetDeviceChangeFunc(func(deviceType string, serialPort string, baudRate int) {
+		params.set(device.DeviceType(deviceType), serialPort, baudRate)
+		// Non-blocking send — if a restart is already pending, skip the duplicate.
+		select {
+		case restartDevice <- struct{}{}:
+		default:
+		}
+	})
 
 	// OS signal channel for graceful shutdown.
 	quit := make(chan os.Signal, 1)
@@ -126,7 +172,7 @@ func main() {
 
 		// Start bridge components before entering the systray event loop.
 		ctx, cancel := context.WithCancel(context.Background())
-		startComponents(ctx, log, drv, wsClient, httpServer, impulseBus, eventBus, &s.httpState)
+		startComponents(ctx, log, drv, params, wsClient, httpServer, impulseBus, eventBus, restartDevice, &s.httpState)
 
 		go func() {
 			<-quit
@@ -141,27 +187,40 @@ func main() {
 		})
 	} else {
 		ctx, cancel := context.WithCancel(context.Background())
-		startComponents(ctx, log, drv, wsClient, httpServer, impulseBus, eventBus, &s.httpState)
+		startComponents(ctx, log, drv, params, wsClient, httpServer, impulseBus, eventBus, restartDevice, &s.httpState)
 		<-quit
 		cancel()
 		shutdownComponents(log, wsClient, httpServer, nil)
 	}
 }
 
+// newDriverFromParams constructs a device.Driver from the current deviceParams.
+func newDriverFromParams(p *deviceParams) (device.Driver, error) {
+	dt, port, baud, vid, pid := p.get()
+	return device.NewDriver(dt, vid, pid, device.SerialConfig{
+		Port:     port,
+		BaudRate: baud,
+	})
+}
+
 // startComponents launches all background goroutines.
 func startComponents(
 	ctx context.Context,
 	log *logrus.Logger,
-	drv device.Driver,
+	initialDrv device.Driver,
+	params *deviceParams,
 	wsClient *ws.BridgeClient,
 	httpServer *bridgehttp.Server,
 	impulseBus chan device.Impulse,
 	eventBus chan usb.TimyEvent,
+	restartDevice <-chan struct{},
 	httpState *bridgehttp.State,
 ) {
-	// 1. Device driver loop: opens device, reads impulses, reconnects on disconnect.
+	// 1. Device driver loop: opens device, reads impulses, reconnects on
+	//    disconnect. Listens on restartDevice to swap to a new driver.
 	go func() {
-		if err := runDeviceLoop(ctx, log, drv, impulseBus, httpState); err != nil {
+		drv := initialDrv
+		if err := runDeviceLoop(ctx, log, drv, params, restartDevice, impulseBus, httpState); err != nil {
 			log.WithError(err).Error("device driver stopped with error")
 		}
 	}()
@@ -197,15 +256,20 @@ func startComponents(
 }
 
 // runDeviceLoop opens the driver and reads impulses, reconnecting on
-// disconnect until ctx is cancelled.
+// disconnect until ctx is cancelled. When restartDevice fires, it closes
+// the current driver and re-creates one from params before reconnecting.
 func runDeviceLoop(
 	ctx context.Context,
 	log *logrus.Logger,
-	drv device.Driver,
+	initialDrv device.Driver,
+	params *deviceParams,
+	restartDevice <-chan struct{},
 	impulseBus chan<- device.Impulse,
 	httpState *bridgehttp.State,
 ) error {
 	const reconnectDelay = 3 * time.Second
+
+	drv := initialDrv
 
 	for {
 		select {
@@ -223,6 +287,16 @@ func runDeviceLoop(
 			select {
 			case <-ctx.Done():
 				return nil
+			case <-restartDevice:
+				// Device type changed — rebuild driver immediately without delay.
+				newDrv, buildErr := newDriverFromParams(params)
+				if buildErr != nil {
+					log.WithError(buildErr).Error("failed to build new driver after device change")
+					continue
+				}
+				log.WithField("driver", newDrv.Name()).Info("device driver replaced via HTTP request")
+				drv = newDrv
+				continue
 			case <-time.After(reconnectDelay):
 			}
 			continue
@@ -231,22 +305,62 @@ func runDeviceLoop(
 		log.WithField("driver", drv.Name()).Info("device opened")
 		atomic.StoreInt32(&httpState.DeviceConnectedFlag, 1)
 
-		err := drv.ReadLoop(ctx, impulseBus)
-		_ = drv.Close()
-		atomic.StoreInt32(&httpState.DeviceConnectedFlag, 0)
-
-		if ctx.Err() != nil {
-			return nil
-		}
-		log.WithFields(logrus.Fields{
-			"driver": drv.Name(),
-			"error":  err,
-		}).Warn("device session ended, reconnecting")
+		// Run the read loop in a separate goroutine so we can also watch for
+		// a device-change request while data is being read.
+		readDone := make(chan error, 1)
+		readCtx, readCancel := context.WithCancel(ctx)
+		go func() {
+			readDone <- drv.ReadLoop(readCtx, impulseBus)
+		}()
 
 		select {
 		case <-ctx.Done():
+			readCancel()
+			<-readDone
+			_ = drv.Close()
+			atomic.StoreInt32(&httpState.DeviceConnectedFlag, 0)
 			return nil
-		case <-time.After(reconnectDelay):
+
+		case <-restartDevice:
+			// User selected a different device type via the HTTP API.
+			readCancel()
+			<-readDone
+			_ = drv.Close()
+			atomic.StoreInt32(&httpState.DeviceConnectedFlag, 0)
+			newDrv, buildErr := newDriverFromParams(params)
+			if buildErr != nil {
+				log.WithError(buildErr).Error("failed to build new driver after device change")
+				// Fall back to original driver so we don't get stuck.
+				newDrv = drv
+			}
+			log.WithField("driver", newDrv.Name()).Info("device driver replaced via HTTP request")
+			drv = newDrv
+			continue
+
+		case err := <-readDone:
+			readCancel()
+			_ = drv.Close()
+			atomic.StoreInt32(&httpState.DeviceConnectedFlag, 0)
+			if ctx.Err() != nil {
+				return nil
+			}
+			log.WithFields(logrus.Fields{
+				"driver": drv.Name(),
+				"error":  err,
+			}).Warn("device session ended, reconnecting")
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-restartDevice:
+				newDrv, buildErr := newDriverFromParams(params)
+				if buildErr != nil {
+					log.WithError(buildErr).Error("failed to build new driver after device change")
+					continue
+				}
+				log.WithField("driver", newDrv.Name()).Info("device driver replaced via HTTP request")
+				drv = newDrv
+			case <-time.After(reconnectDelay):
+			}
 		}
 	}
 }

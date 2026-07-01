@@ -348,7 +348,9 @@
       flex-direction: column;
       align-items: center;
       gap: 6px;
-      pointer-events: none;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
     }
 
     .scroll-hint-text {
@@ -461,20 +463,42 @@
       line-height: 1.65;
     }
 
-    /* CHANGE 3: hardware list in card */
-    .feature-desc ul {
-      list-style: none;
-      padding: 0;
-      margin: 8px 0 0 0;
+    /* CHANGE 3: hardware device grid in card */
+    .device-grid {
+      margin: 10px 0 8px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
 
-    .feature-desc ul li {
-      padding: 2px 0;
+    .device-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
     }
 
-    .feature-desc ul li::before {
-      content: "• ";
-      color: var(--accent);
+    .device-name {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      flex: 1;
+    }
+
+    .badge-conn {
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 100px;
+      background: var(--surface-2);
+      color: var(--accent-light);
+      white-space: nowrap;
+      letter-spacing: 0.04em;
+    }
+
+    .device-note {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-top: 2px;
     }
 
     /* HOW IT WORKS */
@@ -677,24 +701,24 @@
 
     <div class="cta-group">
       <a href="https://timinghub.de/login" class="btn-primary" aria-label="Zur Timing Hub App">
-        Zur App &rarr;
+        Zur App <sup style="font-size:0.65em;font-weight:400;">*</sup> &rarr;
       </a>
       <a href="#results" class="btn-secondary" aria-label="Veranstaltungsergebnisse ansehen">
-        Ergebnisse
+        Ergebnisse <sup style="font-size:0.65em;font-weight:400;">*</sup>
       </a>
     </div>
     <!-- CHANGE 4: availability note -->
-    <p class="cta-note">* Verfügbar nach Inbetriebnahme</p>
+    <p class="cta-note">* verfügbar nach Inbetriebnahme</p>
 
     <!-- CHANGE 1: scroll indicator -->
-    <div class="scroll-hint" aria-hidden="true">
+    <a class="scroll-hint" href="#features" aria-label="Zu den Funktionen scrollen">
       <span class="scroll-hint-text">Mehr entdecken</span>
       <span class="scroll-hint-arrow">
         <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </span>
-    </div>
+    </a>
   </header>
 
   <!-- STATUS BANNER -->
@@ -733,26 +757,33 @@
         <!-- CHANGE 2: rephrased "Installationslos" card -->
         <div class="feature-card animate-in">
           <span class="feature-icon">📱</span>
-          <h3 class="feature-title">Sofort einsatzbereit</h3>
+          <h3 class="feature-title">Direkt im Browser</h3>
           <p class="feature-desc">
-            Zeitnehmer erhalten einen QR-Code oder Link — fertig. Kein App-Store,
-            keine Konto-Erstellung, keine Installation. Einfach öffnen und loslegen.
+            Zeitnehmer erhalten einen QR-Code oder Link — der Browser öffnet sich, und es kann sofort losgehen. Keine Installation, keine Registrierung, kein App-Store.
           </p>
         </div>
 
         <!-- CHANGE 3: expanded hardware integration card -->
         <div class="feature-card animate-in">
           <span class="feature-icon">🔌</span>
-          <h3 class="feature-title">Hardware-Integration</h3>
-          <p class="feature-desc">
-            Direkte Anbindung per USB oder seriell:
-            <ul>
-              <li>ALGE Timy 3 — USB, automatische Erkennung</li>
-              <li>TAG Heuer CP 450 / 500 / 520 / 525 / 540 — RS-232 / USB-Serial</li>
-              <li>Trentmann RallyStar — RS-232 / USB-Serial</li>
-            </ul>
-            Manuelle Eingabe und CSV-Import immer als Fallback.
-          </p>
+          <h3 class="feature-title">Geräte-Integration</h3>
+          <div class="feature-desc">
+            <div class="device-grid">
+              <div class="device-row">
+                <span class="device-name">ALGE Timy 3</span>
+                <span class="badge-conn">USB</span>
+              </div>
+              <div class="device-row">
+                <span class="device-name">TAG Heuer CP</span>
+                <span class="badge-conn">RS-232</span>
+              </div>
+              <div class="device-row">
+                <span class="device-name">Trentmann RallyStar</span>
+                <span class="badge-conn">RS-232</span>
+              </div>
+            </div>
+            <p class="device-note">Manuelle Eingabe immer verfügbar.</p>
+          </div>
         </div>
 
         <div class="feature-card animate-in">

@@ -7,6 +7,7 @@
   import StartnummerInput from '$lib/components/zeitnehmer/StartnummerInput.svelte';
   import TimeQueue from '$lib/components/zeitnehmer/TimeQueue.svelte';
   import ConnectionStatus from '$lib/components/ui/ConnectionStatus.svelte';
+  import TimyStatus from '$lib/components/zeitnehmer/TimyStatus.svelte';
 
   // ---- Types -----------------------------------------------------------------
 
@@ -25,10 +26,14 @@
     timy_port?: string;
   }
 
-  interface TimyStatus {
+  interface BridgeStatus {
     connected: boolean;
-    port: string;
-    last_seen_ms: number;
+    device_connected: boolean;
+    buffer_count: number;
+    last_impulse_at?: number;
+    bridge_seq: number;
+    version: string;
+    device_type?: string;
   }
 
   interface PendingEntry {
@@ -49,7 +54,9 @@
   let sessionError = $state<string | null>(null);
   let startnummer = $state<number | null>(null);
   let pendingEntries = $state<PendingEntry[]>([]);
-  let timyStatus = $state<TimyStatus | null>(null);
+  let timyStatus = $state<BridgeStatus | null>(null);
+  let bridgeAvailable = $state(false);
+  let currentDeviceType = $state('auto');
   let timyPollInterval: ReturnType<typeof setInterval> | null = null;
   let stamping = $state(false);
 
@@ -112,12 +119,19 @@
     try {
       const res = await fetch('http://localhost:7272/status', { signal: AbortSignal.timeout(1500) });
       if (res.ok) {
-        timyStatus = await res.json();
+        const data: BridgeStatus = await res.json();
+        timyStatus = data;
+        bridgeAvailable = true;
+        if (data.device_type) {
+          currentDeviceType = data.device_type;
+        }
       } else {
-        timyStatus = { connected: false, port: '', last_seen_ms: 0 };
+        timyStatus = null;
+        bridgeAvailable = false;
       }
     } catch {
-      timyStatus = { connected: false, port: '', last_seen_ms: 0 };
+      timyStatus = null;
+      bridgeAvailable = false;
     }
   }
 
@@ -269,14 +283,19 @@
     pendingEntries = pendingEntries.filter((e) => e.entry_id !== entryId);
   }
 
-  // ---- Timy status color ------------------------------------------------------
+  // ---- Timy status color / TimyStatus props -----------------------------------
 
-  const timyStatusColor = $derived(() => {
-    if (!session || session.mode !== 'timy') return null;
-    if (!timyStatus) return 'yellow';
-    if (timyStatus.connected) return 'green';
-    return 'red';
+  const timyStatusKind = $derived((): 'connected' | 'disconnected' | 'connecting' => {
+    if (!session || session.mode !== 'timy') return 'disconnected';
+    if (!bridgeAvailable) return 'disconnected';
+    if (!timyStatus) return 'connecting';
+    if (timyStatus.device_connected) return 'connected';
+    return 'disconnected';
   });
+
+  function handleDeviceChange(newType: string, serialPort: string, baudRate: number) {
+    currentDeviceType = newType;
+  }
 
   // ---- Posten role info -------------------------------------------------------
 
@@ -304,9 +323,8 @@
 
   onMount(() => {
     initSession().then(() => {
-      if (session?.mode === 'timy') {
-        startTimyPolling();
-      }
+      // Always poll bridge status — shows TimyStatus indicator and allows device selection
+      startTimyPolling();
       // Use Zeitnehmer-specific WS connection with session token
       wsStore.connectAsZeitnehmer(postenToken, session?.posten_id ?? '');
       setupTimyWsHandler();
@@ -356,11 +374,12 @@
       {/if}
 
       <div class="header-right">
-        {#if session?.mode === 'timy'}
-          <div class="timy-indicator timy-{timyStatusColor()}" title="Timy status">
-            <span class="timy-dot"></span>
-            <span class="timy-label">Timy</span>
-          </div>
+        {#if session?.mode === 'timy' || bridgeAvailable}
+          <TimyStatus
+            status={timyStatusKind()}
+            deviceType={currentDeviceType}
+            onDeviceChange={handleDeviceChange}
+          />
         {/if}
         <ConnectionStatus status={wsStatus} compact />
       </div>
@@ -518,30 +537,6 @@
     gap: 0.75rem;
     flex-shrink: 0;
   }
-
-  /* Timy status indicator */
-  .timy-indicator {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .timy-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-  }
-
-  .timy-green .timy-dot { background: var(--color-success); }
-  .timy-yellow .timy-dot { background: var(--color-warning); }
-  .timy-red .timy-dot { background: var(--color-danger); }
-  .timy-green { color: var(--color-success); }
-  .timy-yellow { color: var(--color-warning); }
-  .timy-red { color: var(--color-danger); }
 
   /* Main */
   .zt-main {
