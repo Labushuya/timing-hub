@@ -395,9 +395,26 @@ Der erste Start erfolgt in zwei Phasen: Zuerst wird Nginx mit einer minimalen HT
 
 ### 9.1 Bootstrap-Nginx-Konfiguration aktivieren
 
+Die Bootstrap-Konfiguration (`timing-hub-bootstrap.conf`) liegt bereits im Repository und ist auf HTTP-only ausgelegt — sie lässt die ACME-Challenge durch, ohne SSL vorauszusetzen.
+
+Stelle sicher, dass **nur** die Bootstrap-Konfiguration im `conf.d`-Verzeichnis aktiv ist:
+
 ```bash
 cd /home/pi/timing-hub/infra
-cp nginx/conf.d/bootstrap.conf nginx/conf.d/default.conf
+ls nginx/conf.d/
+# Erwartete Ausgabe:
+#   timing-hub-bootstrap.conf
+#   timing-hub.conf
+```
+
+> Die Nginx-Konfiguration wird über das Docker-Volume `./nginx/conf.d:/etc/nginx/conf.d:ro` eingebunden.
+> Nginx lädt **alle** `.conf`-Dateien in diesem Verzeichnis. Da `timing-hub.conf` SSL-Zertifikate referenziert, die noch nicht existieren, würde Nginx beim Start abstürzen.
+>
+> Lösung: Benenne `timing-hub.conf` vorübergehend um, damit sie nicht geladen wird:
+
+```bash
+mv /home/pi/timing-hub/infra/nginx/conf.d/timing-hub.conf \
+   /home/pi/timing-hub/infra/nginx/conf.d/timing-hub.conf.disabled
 ```
 
 ### 9.2 Infrastruktur-Services starten
@@ -463,11 +480,18 @@ This certificate expires on YYYY-MM-DD.
 
 ## 11. Schritt 9: Nginx auf HTTPS umstellen
 
-Jetzt wird die Bootstrap-Konfiguration durch die vollständige HTTPS-Konfiguration ersetzt.
+Jetzt wird die Bootstrap-Konfiguration deaktiviert und die vollständige HTTPS-Konfiguration aktiviert.
 
 ```bash
 cd /home/pi/timing-hub/infra
-cp nginx/conf.d/production.conf nginx/conf.d/default.conf
+
+# Bootstrap-Config deaktivieren
+mv nginx/conf.d/timing-hub-bootstrap.conf \
+   nginx/conf.d/timing-hub-bootstrap.conf.disabled
+
+# Vollständige HTTPS-Config aktivieren (falls noch disabled)
+mv nginx/conf.d/timing-hub.conf.disabled \
+   nginx/conf.d/timing-hub.conf 2>/dev/null || true
 ```
 
 Nginx neu starten:
@@ -521,13 +545,13 @@ docker compose -f docker-compose.prod.yml exec api node dist/db/migrations/migra
 
 Erwartete Ausgabe: Alle Migrationen werden als `up` markiert.
 
-### 13.2 Seed-Daten einspielen
+### 13.2 Seed-Daten einspielen (Admin-Account)
 
 ```bash
 docker compose -f docker-compose.prod.yml exec api node dist/db/seed.js
 ```
 
-Erwartete Ausgabe: Basis-Daten (z.B. Standard-Konfigurationen) werden angelegt.
+Erwartete Ausgabe: Admin-Zugangsdaten werden in der Konsole ausgegeben.
 
 ---
 

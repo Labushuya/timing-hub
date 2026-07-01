@@ -117,7 +117,9 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml \
     --webroot --webroot-path=/var/www/certbot \
     --email "$CERTBOT_EMAIL" \
     --agree-tos --no-eff-email \
-    -d "$DOMAIN"
+    -d "$DOMAIN" \
+    -d "www.$DOMAIN" \
+    -d "api.$DOMAIN"
 echo "  Certificate obtained."
 echo ""
 
@@ -133,12 +135,12 @@ echo ""
 
 # --- Run database migrations ---
 echo "[6/6] Running database migrations..."
-docker compose --env-file .env.prod -f docker-compose.prod.yml exec api npx prisma migrate deploy
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec api node dist/db/migrations/migrate.js up
 echo ""
 
 # --- Seed database ---
 echo "[seed] Running database seed..."
-docker compose --env-file .env.prod -f docker-compose.prod.yml exec api npx prisma db seed
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec api node dist/db/seed.js
 echo ""
 
 # --- Success summary ---

@@ -54,7 +54,7 @@ echo ""
 
 # --- Run migrations ---
 echo "[5/5] Running database migrations..."
-docker compose --env-file .env.prod -f docker-compose.prod.yml exec api npx prisma migrate deploy
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec api node dist/db/migrations/migrate.js up
 echo ""
 
 # --- Success summary ---
