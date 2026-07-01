@@ -119,6 +119,11 @@
     }
 
     /* LAYOUT */
+    html, body {
+      overflow-x: hidden;
+      max-width: 100%;
+    }
+
     .container {
       max-width: 1100px;
       margin: 0 auto;
@@ -242,12 +247,15 @@
     }
 
     .hero-sub {
-      font-size: 0.875rem;
+      font-size: 0.8rem;
       color: var(--text-dim);
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       font-weight: 500;
       text-transform: uppercase;
       margin-bottom: 48px;
+      max-width: 100%;
+      word-break: break-word;
+      white-space: normal;
     }
 
     .hero-sub span {
@@ -510,7 +518,7 @@
       border-radius: 100px;
       background: var(--surface-2);
       color: var(--accent-light);
-      white-space: nowrap;
+      flex-shrink: 0;
       letter-spacing: 0.04em;
     }
 

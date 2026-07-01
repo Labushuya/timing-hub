@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0f0f"/>
+      <stop offset="100%" style="stop-color:#1a1010"/>
+    </linearGradient>
+    <!-- Red accent gradient for underline -->
+    <linearGradient id="underline" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e63012"/>
+      <stop offset="50%" style="stop-color:#ff7a5c"/>
+      <stop offset="100%" style="stop-color:#e63012"/>
+    </linearGradient>
+    <!-- Subtle checkered pattern -->
+    <pattern id="checker" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <rect width="20" height="20" fill="rgba(255,255,255,0.012)"/>
+      <rect x="20" y="20" width="20" height="20" fill="rgba(255,255,255,0.012)"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#checker)"/>
+
+  <!-- Subtle left accent bar -->
+  <rect x="0" y="0" width="4" height="640" fill="#e63012" opacity="0.8"/>
+
+  <!-- Top label -->
+  <text x="640" y="148" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="18" font-weight="700" letter-spacing="8"
+        fill="#e63012" opacity="0.9">
+    MOTORSPORT-ZEITNAHME
+  </text>
+
+  <!-- Stopwatch icon -->
+  <g transform="translate(486, 188)">
+    <circle cx="26" cy="30" r="22" fill="none" stroke="#e63012" stroke-width="3.5"/>
+    <line x1="26" y1="30" x2="26" y2="14" stroke="#e63012" stroke-width="3" stroke-linecap="round"/>
+    <line x1="26" y1="30" x2="36" y2="22" stroke="#e63012" stroke-width="2" stroke-linecap="round"/>
+    <rect x="19" y="5" width="14" height="4" rx="2" fill="#e63012"/>
+  </g>
+
+  <!-- Main wordmark: Timing:Hub -->
+  <!-- "Timing" -->
+  <text x="552" y="240" text-anchor="start"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="100" font-weight="900" letter-spacing="-3"
+        fill="#f0f0f0">Timing</text>
+  <!-- ":" in accent red -->
+  <text x="839" y="240" text-anchor="start"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="100" font-weight="900"
+        fill="#e63012">:</text>
+  <!-- "Hub" -->
+  <text x="862" y="240" text-anchor="start"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="100" font-weight="900" letter-spacing="-3"
+        fill="#f0f0f0">Hub</text>
+
+  <!-- Animated-style underline (static in SVG) -->
+  <rect x="488" y="256" width="690" height="4" rx="2" fill="url(#underline)" opacity="0.9"/>
+
+  <!-- Tagline -->
+  <text x="640" y="320" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="22" font-weight="400" letter-spacing="0.5"
+        fill="#888888">
+    Professionelle Live-Zeitnahme für klassische Motorsport-Veranstaltungen
+  </text>
+
+  <!-- Sub badges: Live · Browserbasiert · Ohne Installation -->
+  <text x="640" y="368" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="14" font-weight="600" letter-spacing="4"
+        fill="#444444">
+    LIVE  ·  BROWSERBASIERT  ·  OHNE INSTALLATION
+  </text>
+
+  <!-- Divider -->
+  <line x1="488" y1="420" x2="792" y2="420" stroke="#2a2a2a" stroke-width="1"/>
+
+  <!-- Bottom: tech stack pills -->
+  <!-- SvelteKit -->
+  <rect x="488" y="444" width="108" height="30" rx="15" fill="#1a1a1a" stroke="#2a2a2a" stroke-width="1"/>
+  <text x="542" y="464" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="13" font-weight="600" fill="#FF3E00">SvelteKit 2</text>
+
+  <!-- Fastify -->
+  <rect x="608" y="444" width="90" height="30" rx="15" fill="#1a1a1a" stroke="#2a2a2a" stroke-width="1"/>
+  <text x="653" y="464" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="13" font-weight="600" fill="#888888">Fastify 5</text>
+
+  <!-- Go -->
+  <rect x="710" y="444" width="74" height="30" rx="15" fill="#1a1a1a" stroke="#2a2a2a" stroke-width="1"/>
+  <text x="747" y="464" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="13" font-weight="600" fill="#00ADD8">Go 1.23</text>
+
+  <!-- URL bottom right -->
+  <text x="1220" y="596" text-anchor="end"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="16" font-weight="500" letter-spacing="1"
+        fill="#333333">timinghub.de</text>
+
+  <!-- Corner accent dots -->
+  <circle cx="60" cy="60" r="3" fill="#e63012" opacity="0.4"/>
+  <circle cx="1220" cy="60" r="3" fill="#e63012" opacity="0.4"/>
+  <circle cx="60" cy="580" r="3" fill="#e63012" opacity="0.4"/>
+  <circle cx="1220" cy="580" r="3" fill="#e63012" opacity="0.4"/>
+</svg>
