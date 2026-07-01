@@ -2,6 +2,10 @@
 
 <div align="center">
 
+<img src="landing/logo-avatar.svg" alt="Timing:Hub Logo" width="120" height="120"/>
+
+<br/><br/>
+
 **Professional motorsport live-timing platform for classic events**
 
 *ADAC • Badenpokal • Schauinsland Klassik • Käthchen Klassik*
