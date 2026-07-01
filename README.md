@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="landing/logo-avatar.svg" alt="Timing:Hub Logo" width="120" height="120"/>
+<img src="landing/banner.svg" alt="Timing:Hub" width="100%"/>
 
 <br/><br/>
 
