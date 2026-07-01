@@ -1,4 +1,4 @@
-# Timing Hub
+# Timing:Hub
 
 <div align="center">
 
@@ -15,6 +15,17 @@
 [![pnpm](https://img.shields.io/badge/pnpm-9.x-F69220?style=flat-square&logo=pnpm&logoColor=white)](https://pnpm.io/)
 
 [**timinghub.de**](https://timinghub.de) · [Issues](https://github.com/Labushuya/timing-hub/issues) · [Releases](https://github.com/Labushuya/timing-hub/releases)
+
+---
+
+| Bereich | Verzeichnis |
+|---|---|
+| 🌐 Landing Page | [`landing/`](./landing/) |
+| 🖥️ Web App | [`apps/web/`](./apps/web/) |
+| ⚡ API | [`apps/api/`](./apps/api/) |
+| 🔌 Timing Bridge | [`apps/bridge/`](./apps/bridge/) |
+| 📦 Shared Types | [`packages/shared-types/`](./packages/shared-types/) |
+| 🏆 Scoring Engine | [`packages/scoring-engine/`](./packages/scoring-engine/) |
 
 </div>
 
