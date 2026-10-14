@@ -19,7 +19,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    env_file: .env
+    env_file: .env.prod
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -58,8 +58,8 @@ services:
   # ----------------------------------------------------------
   api:
     build:
-      context: ../apps/api
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     env_file: .env.prod
     expose:
@@ -83,12 +83,13 @@ services:
   # ----------------------------------------------------------
   web:
     build:
-      context: ../apps/web
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: apps/web/Dockerfile
     restart: unless-stopped
     environment:
       PUBLIC_API_URL: ${PUBLIC_API_URL}
       PUBLIC_WS_URL: ${PUBLIC_WS_URL}
+      ORIGIN: ${ORIGIN:-https://timinghub.de}
     expose:
       - "3000"
     networks:
