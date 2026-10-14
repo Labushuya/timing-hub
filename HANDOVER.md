@@ -232,7 +232,19 @@ sudo systemctl daemon-reload && sudo systemctl enable timing-hub
 
 ---
 
-## 12. Wichtige .env.prod Variablen
+## 12. Secret Files — was zu sichern ist
+
+**Eine einzige Datei** enthält alle Produktions-Secrets und ist bewusst **nicht** im Repo
+(in `.gitignore` eingetragen):
+
+| Pfad auf dem Pi | Status | Backup |
+|---|---|---|
+| `/home/pi/timing-hub/infra/.env.prod` | Wird beim `first-setup.sh` erstellt | USB-Stick oder Passwortmanager |
+
+Ohne diese Datei kann nach einem Pi-Ausfall die Datenbank nicht wiederhergestellt werden.
+Template liegt im Repo unter `infra/.env.prod.example`.
+
+### Vollständige .env.prod Variablen
 
 ```bash
 # Generieren mit: openssl rand -hex 32
